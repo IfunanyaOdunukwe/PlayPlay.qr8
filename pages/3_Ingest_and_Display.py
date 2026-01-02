@@ -4,14 +4,14 @@ import pandas as pd
 from src.ingestion import fetch_playlist_data  # Applied: Singular import as per "General Code Quality Guidelines #1"
 from src.auth import SpotifyAuthManager
 
-st.title("Ingest and Display Playlist Data")
+st.title("Ingest this playlist")
 
 # Check authentication and playlist selection prerequisites
 missing_token = 'token_info' not in st.session_state or not SpotifyAuthManager.is_token_valid(st.session_state['token_info'])
 missing_playlist = 'selected_playlist_id' not in st.session_state or 'selected_playlist' not in st.session_state
 
 if missing_token or missing_playlist:
-    st.warning("You must connect your Spotify account and select a playlist before ingesting data.")
+    st.warning("Select a playlist first!")
     if st.button("Go to Playlist Selection"):
         try:
             st.switch_page('pages/2_Connect_and_Select.py')  # Streamlit 1.22+
