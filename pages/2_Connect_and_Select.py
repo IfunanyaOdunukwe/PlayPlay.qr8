@@ -3,7 +3,7 @@ import spotipy
 from src.auth import SpotifyAuthManager  # Applied: Modularized auth logic as per "Code Reusability #1"
 
 try:
-    st.title("Link Your Spotify Account and Select a Playlist")
+    st.title("Connect Spotify and Select a Playlist")
 
     # Try to load token from .cache first
     token_info = SpotifyAuthManager.read_token_cache()
@@ -11,20 +11,6 @@ try:
     if token_info and SpotifyAuthManager.is_token_valid(token_info):
         st.session_state['token_info'] = token_info
         authenticated = True
-    elif token_info and 'refresh_token' in token_info:
-        # Prompt for client info to refresh
-        client_id = st.text_input("Spotify Client ID (for refresh)")
-        client_secret = st.text_input("Spotify Client Secret (for refresh)", type="password")
-        redirect_uri = st.text_input("Redirect URI (for refresh)", value="http://127.0.0.1:3000")
-        if client_id and client_secret and redirect_uri:
-            try:
-                refreshed = SpotifyAuthManager.refresh_token(token_info, client_id, client_secret, redirect_uri)
-                st.session_state['token_info'] = refreshed
-                authenticated = True
-            except Exception as e:
-                st.error(f"Failed to refresh token: {e}")
-        else:
-            st.info("Token expired. Please provide your Spotify credentials to refresh.")
     elif 'token_info' in st.session_state and SpotifyAuthManager.is_token_valid(st.session_state['token_info']):
         authenticated = True
 
@@ -63,11 +49,11 @@ try:
             SpotifyAuthManager.disconnect(st.session_state)
             st.rerun()
     else:
-        # No valid token, prompt for credentials
-        client_id = st.text_input("Spotify Client ID")
-        client_secret = st.text_input("Spotify Client Secret", type="password")
-        redirect_uri = st.text_input("Redirect URI", value="http://127.0.0.1:3000")
-
+        # Always show connect prompt if not authenticated or token is expired
+        st.subheader("Connect with New Spotify Credentials")
+        client_id = st.text_input("Spotify Client ID", key="connect_client_id")
+        client_secret = st.text_input("Spotify Client Secret", type="password", key="connect_client_secret")
+        redirect_uri = st.text_input("Redirect URI", value="http://127.0.0.1:3000", key="connect_redirect_uri")
         if st.button("Connect"):
             if client_id and client_secret and redirect_uri:
                 try:
@@ -92,4 +78,4 @@ try:
                 st.warning("Please fill in all fields.")
 except Exception as page_error:
     st.error(f"Page failed to load: {page_error}")
-# Applied: All Spotify authentication logic is now modularized in SpotifyAuthManager as per "Code Reusability #1" and "Code Structure #1"
+# Applied: Only connect prompt is shown when token is expired, as per "Code Structure #1" and "Code Cleanliness #2"

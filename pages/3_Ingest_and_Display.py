@@ -26,7 +26,7 @@ playlist_name = st.session_state['selected_playlist']
 # Optional: Remove debug info for production, or keep for troubleshooting
 # st.info(f"Debug: Playlist Name: {playlist_name}, Playlist ID: {playlist_id}")
 
-if st.button("Ingest Playlist"):
+if st.button("Process Playlist Data"):
     with st.spinner(f"Ingesting playlist '{playlist_name}' data..."):
         try:
             df = fetch_playlist_data(sp, playlist_id)
