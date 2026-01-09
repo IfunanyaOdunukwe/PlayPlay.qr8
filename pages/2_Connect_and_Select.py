@@ -35,16 +35,9 @@ try:
                     st.session_state['selected_playlist'] = pl['name']
                     st.session_state['selected_playlist_id'] = pl['id']
                     break  # Applied: Store both name and ID only on change for robustness
-        # Only show success and navigation if a real playlist is selected
+        # Only show success if a real playlist is selected
         if selected_playlist != "-- Select a playlist --":
             st.success(f"Connected! Selected playlist: {selected_playlist}")
-            if st.button("Go to Ingestion"):
-                try:
-                    st.switch_page('pages/3_Ingest_and_Display.py')  # Streamlit 1.22+ multipage navigation
-                except Exception:
-                    st.session_state['go_to_ingest'] = True
-                    st.info("Please use the sidebar to navigate to 'Ingest and Display Playlist Data'.")
-                    st.stop()
         if st.button("Disconnect"):
             SpotifyAuthManager.disconnect(st.session_state)
             st.rerun()
@@ -79,3 +72,4 @@ try:
 except Exception as page_error:
     st.error(f"Page failed to load: {page_error}")
 # Applied: Only connect prompt is shown when token is expired, as per "Code Structure #1" and "Code Cleanliness #2"
+# Applied: Removed 'Go to Ingestion' button and navigation as per 'Code Cleanliness #2' and 'Code Structure #1'.
