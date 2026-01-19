@@ -5,6 +5,15 @@ from src.auth import SpotifyAuthManager
 
 st.title("Eat This Playlist")
 
+# Developer mode toggle controls visibility of hidden columns in the table
+with st.sidebar:
+    developer_mode = st.toggle(
+        "Developer mode",
+        value=st.session_state.get("developer_mode", False),
+        help="When on, include hidden/internal columns in the table.",
+    )
+st.session_state["developer_mode"] = developer_mode
+
 AUDIO_FEATURE_HELP = {
     "acousticness": "Acousticness (0–100%): confidence the track is acoustic. Higher = more acoustic.",
     "danceability": "Danceability (0–100%): how suitable the track is for dancing. Higher = more danceable.",
@@ -65,7 +74,6 @@ if st.button("Eat This Playlist"):
                 st.warning("No tracks found or ingestion failed.")
         if df is not None and not df.empty:
             df_display = df.copy()
-
             hidden_cols = [
                 "id",
                 "album",
@@ -74,13 +82,17 @@ if st.button("Eat This Playlist"):
                 "spotify_id",
             ]
             existing_hidden = [col for col in hidden_cols if col in df_display.columns]
-            if existing_hidden:
-                df_display = df_display.drop(columns=existing_hidden)
+            # Only drop hidden columns when developer mode is OFF
+            if not st.session_state.get("developer_mode", False):
+                if existing_hidden:
+                    df_display = df_display.drop(columns=existing_hidden)
 
             if "key" in df_display.columns:
                 df_display["key"] = df_display["key"].map(KEY_LABELS).fillna(df_display["key"].astype(str))
             if "mode" in df_display.columns:
                 df_display["mode"] = df_display["mode"].map(MODE_LABELS).fillna(df_display["mode"].astype(str))
+            if "name" in df_display.columns:
+                df_display = df_display.rename(columns={"name": "track_name"})
 
             column_config = {}
 

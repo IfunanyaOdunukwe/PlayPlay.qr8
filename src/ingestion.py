@@ -122,7 +122,7 @@ def fetch_playlist_data(sp, playlist_id, force_refresh=False, reccobeats_api_key
     # 2. Fetch Audio Features from Reccobeats (Batching 100 at a time)
     track_ids = df_tracks['id'].tolist()
     audio_features = []
-    batch_size = 100
+    batch_size = 40
     for i in range(0, len(track_ids), batch_size):
         batch = track_ids[i:i + batch_size]
         print(f"Requesting audio features for batch: {batch}")  # Debug: show batch

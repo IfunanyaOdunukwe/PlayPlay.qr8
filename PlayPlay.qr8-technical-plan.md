@@ -107,7 +107,7 @@ PlayPlay.qr8/
     *   Parse JSON response.
     *   Iteratively apply filters to the DataFrame:
     ```python
-    # Pseudo-code
+    
     for f in filters:
         if f['op'] == '>': df = df[df[f['column']] > f['val']]
         elif f['op'] == '<': df = df[df[f['column']] < f['val']]
