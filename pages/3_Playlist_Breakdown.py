@@ -3,7 +3,7 @@ import spotipy
 from src.ingestion import fetch_playlist_data, load_from_cache
 from src.auth import SpotifyAuthManager
 
-st.title("Eat This Playlist")
+st.title("Playlist Breakdown")
 
 # Developer mode toggle controls visibility of hidden columns in the table
 with st.sidebar:
@@ -55,7 +55,24 @@ if not playlist_name or not playlist_id:
 st.write(f"**Selected Playlist:** {playlist_name}")
 st.write(f"**Playlist ID:** {playlist_id}")
 
-if st.button("Eat This Playlist"):
+
+# --- DataFrame display persistence logic ---
+show_df_key = f"show_playlist_df_{playlist_id}"
+last_playlist_key = "last_playlist_id_for_df"
+
+eat_pressed = st.button("View Tracks")
+
+# If playlist changes, reset the flag
+if st.session_state.get(last_playlist_key) != playlist_id:
+    st.session_state[show_df_key] = False
+    st.session_state[last_playlist_key] = playlist_id
+
+if eat_pressed:
+    st.session_state[show_df_key] = True
+
+show_df = st.session_state.get(show_df_key, False)
+
+if show_df or eat_pressed:
     try:
         df = load_from_cache(playlist_id)
         if df is not None:
@@ -128,5 +145,6 @@ if st.button("Eat This Playlist"):
                 use_container_width=True,
                 column_config=column_config if column_config else None,
             )
+            # (Hide Playlist Table button removed)
     except Exception as e:
         st.error(f"Error during ingestion: {e}")

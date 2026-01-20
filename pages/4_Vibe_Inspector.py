@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-st.title("Inspector")
+st.title("Vibe Inspector")
 
 # Utility helpers
 def _to_float(val):
@@ -43,7 +43,7 @@ st.write(f"**Playlist ID:** {playlist_id}")
 # Load cached data for the selected playlist
 df = load_from_cache(playlist_id)
 if df is None or df.empty:
-    st.warning("No cached data found for this playlist. Please ingest on 'Eat This Playlist' first.")
+    st.warning("No cached data found for this playlist. Please ingest on Playlist Breakdown first.")
     st.stop()
 
 # Prepare track options (use ID for uniqueness, display as "name — artist")

@@ -1,0 +1,40 @@
+# General Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs and editors
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Caches and data
+.cache/
+cache/
+*.log
+*.sqlite3
+*.db
+*.dat
+*.pid
+*.json
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+node_modules/
