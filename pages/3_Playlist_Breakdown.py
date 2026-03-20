@@ -60,7 +60,7 @@ st.write(f"**Playlist ID:** {playlist_id}")
 show_df_key = f"show_playlist_df_{playlist_id}"
 last_playlist_key = "last_playlist_id_for_df"
 
-eat_pressed = st.button("View Tracks")
+eat_pressed = st.button("Ingest")
 
 # If playlist changes, reset the flag
 if st.session_state.get(last_playlist_key) != playlist_id:

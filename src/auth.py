@@ -3,6 +3,9 @@ import json
 import time
 from spotipy.oauth2 import SpotifyOAuth
 
+SCOPES = "playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
+
+
 class SpotifyAuthManager:
     """
     Utility class for Spotify OAuth authentication and token cache management.
@@ -35,15 +38,35 @@ class SpotifyAuthManager:
             json.dump(token_info, f)
 
     @classmethod
-    def refresh_token(cls, token_info, client_id, client_secret, redirect_uri):
-        auth_manager = SpotifyOAuth(
+    def create_oauth(cls, client_id, client_secret, redirect_uri):
+        """Build a SpotifyOAuth instance with the given credentials."""
+        return SpotifyOAuth(
             client_id=client_id,
             client_secret=client_secret,
             redirect_uri=redirect_uri,
-            scope="playlist-read-private playlist-read-collaborative",
-            cache_path=cls.get_cache_path()
+            scope=SCOPES,
+            cache_path=cls.get_cache_path(),
+            open_browser=False,
         )
-        refreshed = auth_manager.refresh_access_token(token_info['refresh_token'])
+
+    @classmethod
+    def get_auth_url(cls, client_id, client_secret, redirect_uri):
+        """Return the Spotify authorization URL the user should visit."""
+        oauth = cls.create_oauth(client_id, client_secret, redirect_uri)
+        return oauth.get_authorize_url()
+
+    @classmethod
+    def exchange_code(cls, code, client_id, client_secret, redirect_uri):
+        """Exchange an authorization code for a token and cache it."""
+        oauth = cls.create_oauth(client_id, client_secret, redirect_uri)
+        token_info = oauth.get_access_token(code, as_dict=True, check_cache=False)
+        cls.write_token_cache(token_info)
+        return token_info
+
+    @classmethod
+    def refresh_token(cls, token_info, client_id, client_secret, redirect_uri):
+        oauth = cls.create_oauth(client_id, client_secret, redirect_uri)
+        refreshed = oauth.refresh_access_token(token_info['refresh_token'])
         cls.write_token_cache(refreshed)
         return refreshed
 
@@ -54,4 +77,25 @@ class SpotifyAuthManager:
             del st_session_state['token_info']
         if os.path.exists(cache_path):
             os.remove(cache_path)
+
+
+def get_spotify_credentials():
+    """Resolve Spotify credentials from Streamlit secrets or manual session input.
+
+    Returns (client_id, client_secret, redirect_uri) or (None, None, None).
+    """
+    import streamlit as st
+
+    try:
+        return (
+            st.secrets["spotify_client_id"],
+            st.secrets["spotify_client_secret"],
+            st.secrets.get("spotify_redirect_uri", "http://127.0.0.1:8501"),
+        )
+    except (KeyError, FileNotFoundError):
+        return (
+            st.session_state.get("manual_client_id"),
+            st.session_state.get("manual_client_secret"),
+            st.session_state.get("manual_redirect_uri"),
+        )
 

@@ -55,7 +55,17 @@ Visualizes mastering/production intensity; pairs nicely with energy.
 Mode/key strip:
 Row of chips per track showing mode and key; helpful for musicians/DJs.
 
+valence x mode
+valence x energy
+tempo violin plot
+
+
+Choose the metrics that you want to fit the model song by 
+
+
+
 
 ---
+
 
 **Reference:** See `PlayPlay.qr8-technical-plan.md` for full technical details and architecture.

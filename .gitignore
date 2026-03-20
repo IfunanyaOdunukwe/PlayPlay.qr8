@@ -23,7 +23,11 @@ venv.bak/
 *.bak
 *.tmp
 
+# Streamlit secrets (contains API credentials)
+.streamlit/secrets.toml
+
 # Caches and data
+.cache
 .cache/
 cache/
 *.log
