@@ -6,7 +6,7 @@
 - **Directories and files established:**
     - `src/` for backend modules
     - `pages/` for Streamlit UI components
-    - `Hello.py` (demo/placeholder)
+    - `Welcome.py` (demo/placeholder)
     - `PlayPlay.qr8-technical-plan.md` (comprehensive technical plan)
 - **Initial modules implemented:**
     - `src/auth.py`: Spotify OAuth2 authentication logic

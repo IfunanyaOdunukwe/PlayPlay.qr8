@@ -54,7 +54,7 @@ The Sculptor page supports three LLM providers. Add the relevant API key to `sec
 ## Run
 
 ```bash
-streamlit run Hello.py
+streamlit run Welcome.py
 ```
 
 Open **http://127.0.0.1:8501** in your browser.
@@ -70,7 +70,7 @@ Open **http://127.0.0.1:8501** in your browser.
 ## Project structure
 
 ```
-Hello.py                     # Entry point / landing page
+Welcome.py                     # Entry point / landing page
 pages/
   2_Connect_and_Select.py    # Spotify OAuth + playlist picker
   3_Playlist_Breakdown.py    # Data ingestion + feature table

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 source .venv/bin/activate
-streamlit run Hello.py
+streamlit run Welcome.py
 ```
 
 Runs on port 8501. No requirements.txt — dependencies live in `.venv` and include: `streamlit`, `spotipy`, `pandas`, `plotly`, `scikit-learn`, `scipy`, `langchain-openai`, `langchain-google-genai`, `langchain-community`, `pydantic`, `requests`.
@@ -28,7 +28,7 @@ The app falls back to manual text-input entry if secrets.toml is missing.
 
 ## Architecture
 
-**Streamlit multi-page app** — `Hello.py` is the entry point/landing page. Pages in `pages/` are auto-discovered and ordered by filename numeric prefix.
+**Streamlit multi-page app** — `Welcome.py` is the entry point/landing page. Pages in `pages/` are auto-discovered and ordered by filename numeric prefix.
 
 ### Data Flow (sequential through pages)
 
