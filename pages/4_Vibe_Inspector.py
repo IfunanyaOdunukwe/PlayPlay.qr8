@@ -1,4 +1,6 @@
 import streamlit as st
+st.set_page_config(page_title="Vibe Inspector | PlayPlay.qr8", layout="wide")
+
 import pandas as pd
 from src.ingestion import load_from_cache
 import plotly.graph_objects as go
@@ -95,7 +97,8 @@ playlist_name = st.session_state.get('selected_playlist')
 playlist_id = st.session_state.get('selected_playlist_id')
 
 if not playlist_name or not playlist_id:
-    st.error("No playlist selected. Please go back and select a playlist.")
+    st.warning("No playlist selected.")
+    st.page_link("pages/2_Connect_and_Select.py", label="Go to Connect & Select →", icon="🔗")
     st.stop()
 
 
@@ -107,6 +110,9 @@ df = st.session_state[_cache_key]
 if df is None or df.empty:
     st.warning("No cached data found for this playlist. Please ingest on Playlist Breakdown first.")
     st.stop()
+
+with st.sidebar:
+    st.caption(f"🎵 {playlist_name}")
 
 st.subheader("Playlist Statistical Summary")
 
@@ -148,9 +154,11 @@ if not {'id', 'name', 'artist'}.issubset(df.columns):
     st.stop()
 
 track_display = {row['id']: f"{row['name']} — {row['artist']}" for _, row in df[['id', 'name', 'artist']].iterrows()}
+default_ids = list(track_display.keys())[:3]
 selected_ids = st.multiselect(
     "Select tracks to visualize",
     options=list(track_display.keys()),
+    default=default_ids,
     format_func=lambda x: track_display.get(x, x),
     help="Search and select one or more tracks to plot on the radar chart.",
 )
@@ -175,7 +183,7 @@ else:
 
  # Note about tempo normalization shown on the page
 st.caption(
-    "Tempo normalization: each track's BPM is divided by the highest BPM in the current playlist and clamped to [0, 1] so it can be plotted alongside 0–1 metrics."
+    "Tempo is scaled relative to the fastest track in this playlist so it fits the 0–1 radar scale."
 )
 
 if selected_ids:

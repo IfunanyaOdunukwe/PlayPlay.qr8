@@ -1,4 +1,6 @@
 import streamlit as st
+st.set_page_config(page_title="Connect & Select | PlayPlay.qr8", layout="wide")
+
 import spotipy
 from src.auth import SpotifyAuthManager, get_spotify_credentials
 
@@ -56,34 +58,44 @@ if authenticated:
     sp = spotipy.Spotify(auth=token_info["access_token"])
     # Cache playlists to avoid hitting Spotify API on every rerun
     if "user_playlists" not in st.session_state:
-        st.session_state["user_playlists"] = sp.current_user_playlists()
-    playlists = st.session_state["user_playlists"]
-    playlist_options = [pl["name"] for pl in playlists["items"]]
-    playlist_options_with_null = ["-- Select a playlist --"] + playlist_options
+        all_playlists = []
+        results = sp.current_user_playlists(limit=50)
+        all_playlists.extend(results["items"])
+        while results["next"]:
+            results = sp.next(results)
+            all_playlists.extend(results["items"])
+        st.session_state["user_playlists"] = all_playlists
+    all_playlists = st.session_state["user_playlists"]
 
-    default_playlist = st.session_state.get("selected_playlist", "-- Select a playlist --")
-    selected_playlist = st.selectbox(
-        "Select a playlist you want to inspect",
-        playlist_options_with_null,
-        index=(
-            playlist_options_with_null.index(default_playlist)
-            if default_playlist in playlist_options_with_null
-            else 0
-        ),
+    playlist_options = {
+        pl["id"]: f"{pl['name']} ({pl['tracks']['total']} tracks)"
+        for pl in all_playlists
+    }
+    playlist_ids = list(playlist_options.keys())
+    null_option = "__none__"
+
+    current_id = st.session_state.get("selected_playlist_id", null_option)
+    default_index = (
+        playlist_ids.index(current_id) + 1
+        if current_id in playlist_ids
+        else 0
     )
 
-    if (
-        selected_playlist != "-- Select a playlist --"
-        and st.session_state.get("selected_playlist") != selected_playlist
-    ):
-        for pl in playlists["items"]:
-            if pl["name"] == selected_playlist:
+    selected_id = st.selectbox(
+        "Select a playlist you want to inspect",
+        [null_option] + playlist_ids,
+        format_func=lambda x: "-- Select a playlist --" if x == null_option else playlist_options[x],
+        index=default_index,
+    )
+
+    if selected_id != null_option:
+        for pl in all_playlists:
+            if pl["id"] == selected_id:
                 st.session_state["selected_playlist"] = pl["name"]
                 st.session_state["selected_playlist_id"] = pl["id"]
                 break
-
-    if selected_playlist != "-- Select a playlist --":
-        st.success(f"Connected! Selected playlist: {selected_playlist}")
+        st.success(f"Connected! Selected playlist: {st.session_state['selected_playlist']}")
+        st.page_link("pages/3_Playlist_Breakdown.py", label="Continue to Playlist Breakdown →", icon="📊")
 
     if st.button("Disconnect"):
         SpotifyAuthManager.disconnect(st.session_state)

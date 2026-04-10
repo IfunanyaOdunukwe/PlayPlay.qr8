@@ -9,7 +9,7 @@ source .venv/bin/activate
 streamlit run Welcome.py
 ```
 
-Runs on port 8501. No requirements.txt — dependencies live in `.venv` and include: `streamlit`, `spotipy`, `pandas`, `plotly`, `scikit-learn`, `scipy`, `langchain-openai`, `langchain-google-genai`, `langchain-community`, `pydantic`, `requests`.
+Runs on port 8501. Install dependencies with `pip install -r requirements.txt`. No test suite exists.
 
 ## Secrets / Credentials
 
@@ -18,7 +18,7 @@ Spotify credentials go in `.streamlit/secrets.toml` (gitignored):
 ```toml
 spotify_client_id = "..."
 spotify_client_secret = "..."
-spotify_redirect_uri = "http://localhost:8501"
+spotify_redirect_uri = "http://127.0.0.1:8501"
 # Optional for Sculptor page:
 openai_api_key = "..."
 google_api_key = "..."
@@ -32,7 +32,7 @@ The app falls back to manual text-input entry if secrets.toml is missing.
 
 ### Data Flow (sequential through pages)
 
-1. **Auth** (`src/auth.py`): `SpotifyAuthManager` handles OAuth2 via spotipy. Token cached in `.cache` file at project root and in `st.session_state['token_info']`. OAuth callback uses `?code=` query param captured via `st.query_params`.
+1. **Auth** (`src/auth.py`): `SpotifyAuthManager` handles OAuth2 via spotipy. Scopes: `playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private`. Token cached in `.cache` file at project root (gitignored) and in `st.session_state['token_info']`. OAuth callback uses `?code=` query param captured via `st.query_params`.
 
 2. **Connect & Select** (`pages/2_Connect_and_Select.py`): Resolves credentials (secrets.toml → manual input). Stores selected playlist in `st.session_state['selected_playlist']` and `st.session_state['selected_playlist_id']`.
 

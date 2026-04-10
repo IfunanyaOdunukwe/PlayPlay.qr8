@@ -1,4 +1,6 @@
 import streamlit as st
+st.set_page_config(page_title="Playlist Breakdown | PlayPlay.qr8", layout="wide")
+
 import spotipy
 from src.ingestion import fetch_playlist_data, load_from_cache
 from src.auth import SpotifyAuthManager
@@ -49,18 +51,27 @@ playlist_name = st.session_state.get('selected_playlist')
 playlist_id = st.session_state.get('selected_playlist_id')
 
 if not playlist_name or not playlist_id:
-    st.error("No playlist selected. Please go back and select a playlist.")
+    st.warning("No playlist selected.")
+    st.page_link("pages/2_Connect_and_Select.py", label="Go to Connect & Select →", icon="🔗")
     st.stop()
 
+with st.sidebar:
+    st.caption(f"🎵 {playlist_name}")
+
 st.write(f"**Selected Playlist:** {playlist_name}")
-st.write(f"**Playlist ID:** {playlist_id}")
+if st.session_state.get("developer_mode", False):
+    st.write(f"**Playlist ID:** {playlist_id}")
 
 
 # --- DataFrame display persistence logic ---
 show_df_key = f"show_playlist_df_{playlist_id}"
 last_playlist_key = "last_playlist_id_for_df"
 
-eat_pressed = st.button("Ingest")
+col_btn, col_refresh = st.columns([1, 1])
+with col_btn:
+    eat_pressed = st.button("Load Playlist Data")
+with col_refresh:
+    force_refresh = st.toggle("Force refresh from Spotify", value=False, help="Re-fetch from Spotify even if cached data exists.")
 
 # If playlist changes, reset the flag
 if st.session_state.get(last_playlist_key) != playlist_id:
@@ -74,7 +85,9 @@ show_df = st.session_state.get(show_df_key, False)
 
 if show_df or eat_pressed:
     try:
-        df = load_from_cache(playlist_id)
+        df = None
+        if not force_refresh:
+            df = load_from_cache(playlist_id)
         if df is not None:
             st.success(f"Loaded {len(df)} tracks from cache.")
         else:
@@ -84,7 +97,8 @@ if show_df or eat_pressed:
                 st.stop()
             sp = spotipy.Spotify(auth=token_info['access_token'])
             reccobeats_api_key = st.session_state.get('reccobeats_api_key')
-            df = fetch_playlist_data(sp, playlist_id, force_refresh=True, reccobeats_api_key=reccobeats_api_key)
+            with st.spinner("Fetching tracks and audio features from Spotify..."):
+                df = fetch_playlist_data(sp, playlist_id, force_refresh=True, reccobeats_api_key=reccobeats_api_key)
             if df is not None and not df.empty:
                 st.success(f"Fetched and cached {len(df)} tracks.")
             else:
