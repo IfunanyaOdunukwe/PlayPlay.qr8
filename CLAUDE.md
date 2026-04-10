@@ -19,12 +19,11 @@ Spotify credentials go in `.streamlit/secrets.toml` (gitignored):
 spotify_client_id = "..."
 spotify_client_secret = "..."
 spotify_redirect_uri = "http://127.0.0.1:8501"
-# Optional for Sculptor page:
-openai_api_key = "..."
-google_api_key = "..."
+# Required for Sculptor page:
+groq_api_key = "..."
 ```
 
-The app falls back to manual text-input entry if secrets.toml is missing.
+Spotify credentials fall back to manual text-input entry if secrets.toml is missing. The Sculptor page is disabled with an error banner if `groq_api_key` is not configured on the server.
 
 ## Architecture
 
@@ -40,7 +39,7 @@ The app falls back to manual text-input entry if secrets.toml is missing.
 
 4. **Visualize** (`pages/4_Vibe_Inspector.py`): Cache-only reads — no API calls. Renders statistical summary metrics, per-track radar charts (Plotly `Scatterpolar`), valence-vs-energy scatter by mode, and tempo distribution (histogram/violin toggle).
 
-5. **Sculptor** (`pages/5_Playlist_Sculptor.py` + `src/agent.py` + `src/llm_providers.py`): AI chat interface for reshaping playlists via natural language. Multi-provider LLM support (OpenAI, Google Gemini, Ollama local) via LangChain — providers are lazy-imported so only the selected one needs to be installed. Uses a propose-then-approve workflow: LLM generates a structured `SculptorProposal` (Pydantic model with remove/reorder/highlight operations), user sees before/after comparison, then approves or rejects. Can push the sculpted result to Spotify as a new playlist.
+5. **Sculptor** (`pages/5_Playlist_Sculptor.py` + `src/agent.py` + `src/llm_providers.py` + `src/rate_limiter.py`): AI chat interface for reshaping playlists via natural language, backed exclusively by Groq (`meta-llama/llama-4-scout-17b-16e-instruct`) via LangChain. The server-side `groq_api_key` is the only supported credential — users never enter a key. Uses a propose-then-approve workflow: LLM generates a structured `SculptorProposal` (Pydantic model with remove/reorder/highlight operations), user sees before/after comparison, then approves or rejects. Can push the sculpted result to Spotify as a new playlist. Rate limiting (`src/rate_limiter.py`) enforces a 500-char prompt cap, rejects duplicate back-to-back prompts, caps each session at 20 messages, and caps app-wide usage at 500 calls/day via a JSON counter in `cache/sculptor_global_counter.json`.
 
 ### Key Patterns
 
