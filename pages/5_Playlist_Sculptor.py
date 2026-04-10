@@ -1,10 +1,19 @@
 import streamlit as st
+st.set_page_config(page_title="Playlist Sculptor | PlayPlay.qr8", layout="wide")
+
 import spotipy
 import pandas as pd
 from src.ingestion import load_from_cache
 from src.auth import SpotifyAuthManager
-from src.llm_providers import get_available_providers, get_chat_model
+from src.llm_providers import get_chat_model
 from src.agent import generate_response, apply_proposal, compute_comparison, SculptorProposal
+from src.rate_limiter import (
+    SESSION_MESSAGE_CAP,
+    validate_prompt,
+    check_session_cap,
+    check_global_cap,
+    record_request,
+)
 
 st.title("Playlist Sculptor")
 
@@ -15,7 +24,8 @@ playlist_name = st.session_state.get("selected_playlist")
 playlist_id = st.session_state.get("selected_playlist_id")
 
 if not playlist_name or not playlist_id:
-    st.error("No playlist selected. Please go back and select a playlist.")
+    st.warning("No playlist selected.")
+    st.page_link("pages/2_Connect_and_Select.py", label="Go to Connect & Select →", icon="🔗")
     st.stop()
 
 _cache_key = f"_cached_df_{playlist_id}"
@@ -39,6 +49,7 @@ if (
     st.session_state["sculptor_pending_proposal"] = None
     st.session_state["sculptor_pending_df_preview"] = None
     st.session_state["sculptor_pending_comparison"] = None
+    st.session_state["sculptor_session_count"] = 0
     st.session_state["sculptor_playlist_id"] = playlist_id
 
 df_working: pd.DataFrame = st.session_state["sculptor_df_working"]
@@ -69,42 +80,23 @@ if st.session_state.get("sculptor_do_reject"):
 # Sidebar — LLM configuration
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.subheader("LLM Configuration")
+    st.subheader("Sculptor")
 
-    providers = get_available_providers()
-    provider_labels = [p["label"] for p in providers]
-    provider_ids = [p["id"] for p in providers]
+    try:
+        groq_api_key = st.secrets["groq_api_key"]
+        llm_ready = True
+    except (KeyError, FileNotFoundError):
+        groq_api_key = None
+        llm_ready = False
+        st.error("Sculptor is not configured on this server.", icon="⚠️")
 
-    selected_label = st.selectbox("Provider", provider_labels)
-    selected_provider = provider_ids[provider_labels.index(selected_label)]
-    provider_info = providers[provider_labels.index(selected_label)]
+    if llm_ready:
+        st.caption("Powered by **Llama 4 Scout** via Groq")
+        remaining = SESSION_MESSAGE_CAP - st.session_state.get("sculptor_session_count", 0)
+        st.caption(f"Messages remaining this session: **{remaining}/{SESSION_MESSAGE_CAP}**")
 
-    api_key = None
-    model_name = None
-
-    if provider_info["needs_key"]:
-        secret_key_name = (
-            "openai_api_key" if selected_provider == "openai" else "google_api_key"
-        )
-        # Try secrets first
-        try:
-            api_key = st.secrets.get(secret_key_name)
-        except FileNotFoundError:
-            api_key = None
-
-        if not api_key:
-            api_key = st.text_input(
-                f"{selected_label} API Key",
-                type="password",
-                help=f"Or add `{secret_key_name}` to `.streamlit/secrets.toml`.",
-            )
-    else:
-        model_name = st.text_input("Ollama Model Name", value="llama3")
-
-    llm_ready = bool(api_key) if provider_info["needs_key"] else True
-
-    if not llm_ready:
-        st.warning("Enter an API key to enable the sculptor.")
+    st.divider()
+    st.caption(f"🎵 {playlist_name}")
 
 # ---------------------------------------------------------------------------
 # Working playlist stats bar
@@ -125,6 +117,21 @@ for col, (label, feat, fmt_fn) in zip(stat_cols, stat_features):
         continue
     with col:
         st.metric(label=label, value=fmt_fn(df_working))
+
+# Reset button — only show if working data differs from original
+df_original = st.session_state["sculptor_df_original"]
+has_changes = len(df_working) != len(df_original) or not df_working["id"].equals(df_original["id"])
+
+if has_changes:
+    if st.button("Reset to Original", help="Discard all sculpting changes and restore the original playlist."):
+        st.session_state["sculptor_df_working"] = st.session_state["sculptor_df_original"].copy()
+        st.session_state["sculptor_messages"].append(
+            {"role": "assistant", "content": "Playlist reset to original."}
+        )
+        st.session_state["sculptor_pending_proposal"] = None
+        st.session_state["sculptor_pending_df_preview"] = None
+        st.session_state["sculptor_pending_comparison"] = None
+        st.rerun()
 
 st.divider()
 
@@ -177,50 +184,80 @@ if pending and comparison:
 
 # Chat input
 if prompt := st.chat_input("Ask about the playlist or tell me how to reshape it...", disabled=not llm_ready):
-    # Add user message
-    st.session_state["sculptor_messages"].append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.write(prompt)
+    # Find the most recent user prompt for duplicate detection
+    last_prompt = next(
+        (m["content"] for m in reversed(st.session_state["sculptor_messages"]) if m["role"] == "user"),
+        None,
+    )
 
-    # Generate response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            try:
-                llm = get_chat_model(selected_provider, api_key, model_name)
-                result = generate_response(
-                    llm,
-                    df_working,
-                    st.session_state["sculptor_messages"],
-                    prompt,
-                )
+    # Pre-flight checks, short-circuit on first failure
+    checks = [
+        validate_prompt(prompt, last_prompt),
+        check_session_cap(st.session_state.get("sculptor_session_count", 0)),
+        check_global_cap(),
+    ]
+    first_block = next((c for c in checks if not c.allowed), None)
 
-                if isinstance(result, SculptorProposal):
-                    df_preview = apply_proposal(df_working, result)
-                    comp = compute_comparison(df_working, df_preview)
+    if first_block:
+        st.session_state["sculptor_messages"].append({"role": "user", "content": prompt})
+        st.session_state["sculptor_messages"].append(
+            {"role": "assistant", "content": first_block.reason}
+        )
+        st.rerun()
+    else:
+        st.session_state["sculptor_messages"].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.write(prompt)
 
-                    # Store pending
-                    st.session_state["sculptor_pending_proposal"] = result
-                    st.session_state["sculptor_pending_df_preview"] = df_preview
-                    st.session_state["sculptor_pending_comparison"] = comp
-
-                    st.session_state["sculptor_messages"].append(
-                        {"role": "assistant", "content": result.summary}
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    llm = get_chat_model(groq_api_key)
+                    result = generate_response(
+                        llm,
+                        df_working,
+                        st.session_state["sculptor_messages"],
+                        prompt,
                     )
-                else:
-                    # Conversational response
-                    st.session_state["sculptor_messages"].append(
-                        {"role": "assistant", "content": result}
-                    )
 
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error generating response: {e}")
+                    # Increment counters only on successful Groq call
+                    st.session_state["sculptor_session_count"] = (
+                        st.session_state.get("sculptor_session_count", 0) + 1
+                    )
+                    record_request()
+
+                    if isinstance(result, SculptorProposal):
+                        df_preview = apply_proposal(df_working, result)
+                        comp = compute_comparison(df_working, df_preview)
+
+                        st.session_state["sculptor_pending_proposal"] = result
+                        st.session_state["sculptor_pending_df_preview"] = df_preview
+                        st.session_state["sculptor_pending_comparison"] = comp
+
+                        st.session_state["sculptor_messages"].append(
+                            {"role": "assistant", "content": result.summary}
+                        )
+                    else:
+                        st.session_state["sculptor_messages"].append(
+                            {"role": "assistant", "content": result}
+                        )
+
+                    st.rerun()
+                except Exception as e:
+                    error_msg = str(e)
+                    error_lower = error_msg.lower()
+                    if "rate_limit" in error_lower or "429" in error_lower:
+                        user_msg = "Groq is rate-limiting the app right now. Please wait a moment and try again."
+                    elif "quota" in error_lower or "insufficient_quota" in error_lower:
+                        user_msg = "The app has hit its Groq usage quota. Please try again later."
+                    else:
+                        user_msg = f"Error generating response: {e}"
+                    st.error(user_msg)
 
 # ---------------------------------------------------------------------------
 # Push to Spotify
 # ---------------------------------------------------------------------------
-df_original = st.session_state["sculptor_df_original"]
-has_changes = len(df_working) != len(df_original) or not df_working["id"].equals(df_original["id"])
+# has_changes and df_original already computed above
 
 if has_changes:
     st.divider()
