@@ -13,17 +13,13 @@ Runs on port 8501. Install dependencies with `pip install -r requirements.txt`. 
 
 ## Secrets / Credentials
 
-Spotify credentials go in `.streamlit/secrets.toml` (gitignored):
+Only server-side API keys belong in `.streamlit/secrets.toml` (gitignored):
 
 ```toml
-spotify_client_id = "..."
-spotify_client_secret = "..."
-spotify_redirect_uri = "http://127.0.0.1:8501"
-# Required for Sculptor page:
 groq_api_key = "..."
 ```
 
-Spotify credentials fall back to manual text-input entry if secrets.toml is missing. The Sculptor page is disabled with an error banner if `groq_api_key` is not configured on the server.
+Spotify Client ID and Client Secret are entered manually on the Connect page. The page shows the app home URL to register as the Redirect URI, validates the credentials before OAuth starts, and keeps tokens in `st.session_state` only. The Sculptor page is disabled with an error banner if `groq_api_key` is not configured on the server.
 
 Bundled demo playlists are local CSV files under `demo_playlists/` and are available without Spotify login. Spotify credentials are needed for the authenticated flow, which supports both the user's own library and pasted public Spotify playlist URLs, as well as Spotify export.
 
@@ -33,7 +29,7 @@ Bundled demo playlists are local CSV files under `demo_playlists/` and are avail
 
 ### Data Flow (sequential through pages)
 
-1. **Auth** (`src/auth.py`): `SpotifyAuthManager` handles OAuth2 via spotipy for the personal-account path only. Scopes: `playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private`. Token cached in `.cache` file at project root (gitignored) and in `st.session_state['token_info']`. OAuth callback uses `?code=` query param captured via `st.query_params`.
+1. **Auth** (`src/auth.py`): `SpotifyAuthManager` handles OAuth2 via spotipy for the personal-account path only. Scopes: `playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private`. Tokens live in `st.session_state['token_info']` only; there is no persistent token cache on disk. OAuth callback uses `?code=` query param captured via `st.query_params`.
 
 2. **Connect & Select** (`pages/2_Connect_and_Select.py` + `src/demo.py`): Users choose between a local CSV demo flow and the Spotify OAuth flow. The authenticated Spotify flow supports both playlists from the user's library and pasted public playlist URLs. Stores selected playlist in `st.session_state['selected_playlist']`, `st.session_state['selected_playlist_id']`, `st.session_state['selected_playlist_source']`, and `st.session_state['selected_playlist_reference']`.
 
