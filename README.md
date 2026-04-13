@@ -14,7 +14,7 @@ A Streamlit app for analyzing and curating playlists. Try local CSV demo playlis
 - Python 3.11+
 - A [Spotify Developer](https://developer.spotify.com/dashboard) app with:
   - A Client ID and Client Secret
-  - `http://127.0.0.1:8501` added as a Redirect URI
+  - Your app URL added as a Redirect URI. Use `http://127.0.0.1:8501` locally or your deployed Streamlit Cloud URL when hosted.
 
 Spotify credentials are required to browse your own library, analyze pasted public playlist URLs, or push a sculpted playlist back to Spotify. The demo flow uses bundled CSV playlists and does not call the Spotify API.
 
@@ -33,12 +33,6 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Configure Spotify credentials
-
-```bash
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml
-```
-
 #### Spotify Developer setup
 
 To use your own Spotify login, create a Spotify app first:
@@ -46,33 +40,26 @@ To use your own Spotify login, create a Spotify app first:
 1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and create an app.
 2. On the app page, open Settings or Edit Settings.
 3. Copy the Client ID and use View client secret to reveal the Client Secret.
-4. Add `http://127.0.0.1:8501` to Redirect URIs if you run the app on the default local port. If you run Streamlit on another port, use that exact local app URL instead.
+4. Add your app home URL to Redirect URIs. For local development, use `http://127.0.0.1:8501` unless you changed the port. For Streamlit Cloud, use your deployed app root URL.
 5. Save the app settings.
+6. Open Connect & Select in the app and paste the Client ID and Client Secret into the Spotify form. No Spotify values are required in `.streamlit/secrets.toml`.
 
 Spotify's official setup references:
 
 - [Getting started with the Web API](https://developer.spotify.com/documentation/web-api/tutorials/getting-started)
 - [Apps](https://developer.spotify.com/documentation/web-api/concepts/apps)
 
-Edit `.streamlit/secrets.toml` and fill in the Spotify values:
+The Connect page shows the exact app home URL to register as the Redirect URI, validates the Client ID and Client Secret before OAuth starts, and keeps Spotify tokens in session only.
+
+### Optional: Server API key for Playlist Sculptor
+
+If you want to use the Sculptor page, add your Groq API key to `.streamlit/secrets.toml`:
 
 ```toml
-spotify_client_id = "..."
-spotify_client_secret = "..."
-spotify_redirect_uri = "http://127.0.0.1:8501"
+groq_api_key = "..."
 ```
 
-Alternatively, you can enter credentials manually in the app's Connect page.
-
-### Optional: LLM for Playlist Sculptor
-
-The Sculptor page supports three LLM providers. Add the relevant API key to `secrets.toml` or enter it in the app sidebar:
-
-| Provider | Key in secrets.toml | Notes |
-|----------|-------------------|-------|
-| OpenAI | `openai_api_key` | Uses GPT-4o |
-| Google Gemini | `google_api_key` | Uses Gemini Flash |
-| Ollama | *(none needed)* | Requires [Ollama](https://ollama.com) running locally |
+Without `groq_api_key`, the Sculptor page stays disabled.
 
 ## Run
 

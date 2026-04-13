@@ -1,33 +1,52 @@
+from html import escape
+
 import streamlit as st
 st.set_page_config(page_title="Connect & Select | PlayPlay.qr8", layout="wide")
 
 import spotipy
-from src.auth import DEFAULT_SPOTIFY_REDIRECT_URI, SpotifyAuthManager, get_spotify_credentials
+from src.auth import (
+    DEFAULT_SPOTIFY_REDIRECT_URI,
+    SpotifyAuthManager,
+    clear_pending_spotify_auth,
+    create_pending_spotify_auth,
+    format_spotify_auth_error,
+    get_runtime_redirect_uri,
+    get_spotify_credentials,
+    get_spotify_credentials_signature,
+    validate_spotify_credentials,
+)
 from src.demo import get_demo_playlist, get_demo_playlists, get_public_playlist
+from src.session_state import (
+    DEMO_PLAYLIST_WIDGET_KEY,
+    SPOTIFY_LIBRARY_PLAYLIST_WIDGET_KEY,
+    clear_playlist_dependent_state,
+    clear_spotify_auth_state,
+    clear_spotify_callback_payload,
+    get_playlist_owner_label,
+    get_selected_playlist_snapshot,
+    get_spotify_callback_payload,
+    set_selected_playlist,
+    store_spotify_callback_payload,
+)
 from src.theme import apply_spotify_theme, render_nav_button, render_playlist_indicator
 
 apply_spotify_theme()
-
-st.title("Choose a Playlist")
+st.title("")
+playlist_indicator_slot = st.empty()
 st.write(
-    "Use a demo playlist or connect Spotify to choose from your library or a public URL."
+    "Connect Spotify for the full experience and choose your own playlists, or try out the included demo playlists with no login required."
 )
 
 DEMO_MODE = "demo"
 SPOTIFY_MODE = "spotify"
-PLAYLIST_STATE_KEYS = [
-    "selected_playlist",
-    "selected_playlist_id",
-    "selected_playlist_source",
-    "selected_playlist_description",
-    "selected_playlist_owner",
-    "selected_playlist_track_total",
-    "selected_playlist_reference",
-]
 CONNECT_MODE_WIDGET_KEY = "connect_mode_widget"
 PUBLIC_PLAYLIST_FORM_KEY = "spotify_public_playlist_form"
 LIBRARY_SEARCH_WIDGET_KEY = "spotify_library_search"
 LIBRARY_FILTER_WIDGET_KEY = "spotify_library_filter"
+SPOTIFY_FAILED_EXCHANGE_KEY = "spotify_failed_exchange_key"
+SPOTIFY_PENDING_AUTH_STATE_KEY = "spotify_pending_auth_state"
+SPOTIFY_PENDING_AUTH_SIGNATURE_KEY = "spotify_pending_auth_signature"
+SPOTIFY_VALIDATED_SIGNATURE_KEY = "spotify_validated_credentials_signature"
 LIBRARY_FILTER_OPTIONS = [
     "All playlists",
     "Owned by you",
@@ -37,15 +56,7 @@ LIBRARY_FILTER_OPTIONS = [
 
 
 def clear_selected_playlist():
-    for key in PLAYLIST_STATE_KEYS:
-        st.session_state.pop(key, None)
-
-
-def get_playlist_owner_label(playlist: dict) -> str | None:
-    owner = playlist.get("owner")
-    if isinstance(owner, dict):
-        return owner.get("display_name") or owner.get("id")
-    return owner
+    clear_playlist_dependent_state(st.session_state)
 
 
 def get_playlist_owner_id(playlist: dict) -> str | None:
@@ -95,42 +106,31 @@ def filter_library_playlists(
     return filtered_playlists
 
 
-def set_selected_playlist(playlist: dict, source: str, reference: str | None = None):
-    st.session_state["selected_playlist"] = playlist["name"]
-    st.session_state["selected_playlist_id"] = playlist["id"]
-    st.session_state["selected_playlist_source"] = source
-    st.session_state["selected_playlist_description"] = playlist.get("description")
-    st.session_state["selected_playlist_owner"] = get_playlist_owner_label(playlist)
-    st.session_state["selected_playlist_track_total"] = playlist.get("tracks", {}).get("total")
-    st.session_state["selected_playlist_reference"] = reference
+def update_playlist_indicator(playlist: dict | None):
+    if playlist and playlist.get("name"):
+        with playlist_indicator_slot.container():
+            render_playlist_indicator("Current Playlist", playlist["name"])
+    else:
+        playlist_indicator_slot.empty()
 
 
-def get_selected_playlist_snapshot() -> dict | None:
-    playlist_id = st.session_state.get("selected_playlist_id")
-    playlist_name = st.session_state.get("selected_playlist")
-    if not playlist_id or not playlist_name:
-        return None
-    return {
-        "id": playlist_id,
-        "name": playlist_name,
-        "description": st.session_state.get("selected_playlist_description"),
-        "owner": st.session_state.get("selected_playlist_owner"),
-        "tracks": {"total": st.session_state.get("selected_playlist_track_total")},
-    }
+def sync_spotify_library_selection():
+    selected_id = st.session_state.get(SPOTIFY_LIBRARY_PLAYLIST_WIDGET_KEY)
+    if not selected_id or selected_id == "__none__":
+        if not st.session_state.get("selected_playlist_reference"):
+            clear_selected_playlist()
+        return
 
-
-def render_playlist_ready_state(playlist: dict, ready_label: str):
-    render_playlist_indicator(
-        ready_label,
-        playlist["name"],
-        note=playlist.get("description"),
-    )
+    for playlist in st.session_state.get("user_playlists", []):
+        if playlist.get("id") == selected_id:
+            set_selected_playlist(st.session_state, playlist, SPOTIFY_MODE)
+            return
 
 
 def disconnect_spotify():
-    SpotifyAuthManager.disconnect(st.session_state)
-    st.session_state.pop("user_playlists", None)
-    st.session_state.pop("spotify_user_profile", None)
+    pending_auth_state = st.session_state.get(SPOTIFY_PENDING_AUTH_STATE_KEY)
+    clear_spotify_auth_state(st.session_state, include_manual_inputs=True)
+    clear_pending_spotify_auth(pending_auth_state)
     if st.session_state.get("selected_playlist_source") == SPOTIFY_MODE:
         clear_selected_playlist()
 
@@ -144,61 +144,91 @@ def sync_connect_mode():
             clear_selected_playlist()
 
 
-def _secrets_configured():
-    try:
-        return bool(
-            st.secrets.get("spotify_client_id")
-            and st.secrets.get("spotify_client_secret")
-        )
-    except FileNotFoundError:
-        return False
-
-
 def render_spotify_setup_help():
+    current_redirect_uri = get_runtime_redirect_uri()
     with st.expander("How to set up Spotify login"):
         st.markdown(
             f"""
             1. Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
             2. Open the app settings, copy the **Client ID**, and use **View client secret** to reveal the **Client Secret**.
-            3. In **Redirect URIs**, add `{DEFAULT_SPOTIFY_REDIRECT_URI}` if you run this app on the default local port. If you run Streamlit on another port, use that exact app URL instead.
-            4. Save the app, then paste the values below or add them to `.streamlit/secrets.toml`.
+            3. In **APIs used**, choose **Web API**.
+            4. In **Redirect URIs**, add the following:
+                - `https://playplayqr8.streamlit.app/`
+                - `http://127.0.0.1:8501` (add this one if you plan to run the app locally)
+            5. Save the app, then paste the **Client ID** and **Client Secret** into the form below.
 
             Official guides:
             [Getting Started](https://developer.spotify.com/documentation/web-api/tutorials/getting-started)
             and [Apps](https://developer.spotify.com/documentation/web-api/concepts/apps)
             """
         )
-        st.code(
-            "\n".join(
-                [
-                    'spotify_client_id = "..."',
-                    'spotify_client_secret = "..."',
-                    f'spotify_redirect_uri = "{DEFAULT_SPOTIFY_REDIRECT_URI}"',
-                ]
-            ),
-            language="toml",
-        )
+
+
+def render_spotify_continue_link(auth_url: str):
+    st.markdown(
+        f"""
+        <style>
+        .spotify-auth-link {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.7rem 1.1rem;
+            border-radius: 999px;
+            background: #1db954;
+            color: #04130a !important;
+            font-weight: 700;
+            text-decoration: none;
+        }}
+        .spotify-auth-link:hover {{
+            background: #18a349;
+            color: #04130a !important;
+        }}
+        </style>
+        <a class="spotify-auth-link" href="{escape(auth_url, quote=True)}" target="_self">
+            Continue to Spotify
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # --- Handle OAuth callback (code in query params) ---
 query_code = st.query_params.get("code")
-if query_code and "token_info" not in st.session_state:
+query_state = st.query_params.get("state")
+if query_code:
+    store_spotify_callback_payload(st.session_state, query_code, query_state)
+    st.query_params.clear()
+
+callback_payload = get_spotify_callback_payload(st.session_state)
+callback_code = callback_payload.get("code")
+callback_state = callback_payload.get("state")
+
+if callback_code and "token_info" not in st.session_state:
     st.session_state["connect_mode"] = SPOTIFY_MODE
     st.session_state[CONNECT_MODE_WIDGET_KEY] = SPOTIFY_MODE
-    client_id, client_secret, redirect_uri = get_spotify_credentials()
+    client_id, client_secret, redirect_uri = get_spotify_credentials(auth_state=callback_state)
+    credentials_signature = get_spotify_credentials_signature(client_id, client_secret)
+    failed_exchange_key = f"{callback_code}:{callback_state or credentials_signature}"
     if client_id and client_secret and redirect_uri:
-        try:
-            token_info = SpotifyAuthManager.exchange_code(
-                query_code, client_id, client_secret, redirect_uri
-            )
-            st.session_state["token_info"] = token_info
-            st.query_params.clear()
-            st.rerun()
-        except Exception as e:
-            st.error(f"Failed to exchange auth code: {e}")
+        if st.session_state.get(SPOTIFY_FAILED_EXCHANGE_KEY) != failed_exchange_key:
+            try:
+                token_info = SpotifyAuthManager.exchange_code(
+                    callback_code, client_id, client_secret, redirect_uri
+                )
+                st.session_state["token_info"] = token_info
+                st.session_state.pop("spotify_auth_error", None)
+                clear_spotify_callback_payload(st.session_state)
+                st.session_state.pop(SPOTIFY_FAILED_EXCHANGE_KEY, None)
+                pending_auth_state = st.session_state.pop(SPOTIFY_PENDING_AUTH_STATE_KEY, None)
+                st.session_state.pop(SPOTIFY_PENDING_AUTH_SIGNATURE_KEY, None)
+                clear_pending_spotify_auth(callback_state or pending_auth_state)
+                st.rerun()
+            except Exception as e:
+                st.session_state["spotify_auth_error"] = format_spotify_auth_error(e)
+                st.session_state[SPOTIFY_FAILED_EXCHANGE_KEY] = failed_exchange_key
 
 # --- Check for existing valid token ---
-token_info = st.session_state.get("token_info") or SpotifyAuthManager.read_token_cache()
+token_info = st.session_state.get("token_info")
 authenticated = False
 
 if token_info and SpotifyAuthManager.is_token_valid(token_info):
@@ -226,20 +256,17 @@ if st.session_state.get(CONNECT_MODE_WIDGET_KEY) not in {DEMO_MODE, SPOTIFY_MODE
     st.session_state[CONNECT_MODE_WIDGET_KEY] = st.session_state["connect_mode"]
 
 mode = st.radio(
-    "Start with",
-    [DEMO_MODE, SPOTIFY_MODE],
+    "Choose your experience",
+    [SPOTIFY_MODE, DEMO_MODE],
     key=CONNECT_MODE_WIDGET_KEY,
     on_change=sync_connect_mode,
     horizontal=True,
     format_func=lambda value: (
-        "Demo playlists" if value == DEMO_MODE else "Spotify"
+        "Spotify" if value == SPOTIFY_MODE else "Demo Playlists"
     ),
 )
 
-st.caption("Choose a source, pick a playlist, then open the breakdown.")
-
 if mode == DEMO_MODE:
-    st.markdown("### Demo Playlists")
     st.caption("Included with the app. No Spotify login needed.")
 
     selected_demo_playlist = None
@@ -255,7 +282,16 @@ if mode == DEMO_MODE:
         if st.session_state.get("selected_playlist_source") == DEMO_MODE
         else null_option
     )
-    default_index = playlist_ids.index(current_id) + 1 if current_id in playlist_ids else 0
+    demo_select_options = [null_option] + playlist_ids
+
+    if DEMO_PLAYLIST_WIDGET_KEY not in st.session_state:
+        st.session_state[DEMO_PLAYLIST_WIDGET_KEY] = (
+            current_id if current_id in playlist_ids else null_option
+        )
+    elif st.session_state[DEMO_PLAYLIST_WIDGET_KEY] not in demo_select_options:
+        st.session_state[DEMO_PLAYLIST_WIDGET_KEY] = (
+            current_id if current_id in playlist_ids else null_option
+        )
 
     selector_col, preview_col = st.columns([1.05, 1.45], gap="large")
 
@@ -263,8 +299,8 @@ if mode == DEMO_MODE:
         with st.container(border=True):
             selected_demo_id = st.selectbox(
                 "Select a demo playlist",
-                [null_option] + playlist_ids,
-                index=default_index,
+                demo_select_options,
+                key=DEMO_PLAYLIST_WIDGET_KEY,
                 format_func=lambda value: (
                     "Select a demo playlist" if value == null_option else demo_options[value]
                 ),
@@ -272,7 +308,9 @@ if mode == DEMO_MODE:
 
             if selected_demo_id != null_option:
                 selected_demo_playlist = get_demo_playlist(selected_demo_id)
-                set_selected_playlist(selected_demo_playlist, DEMO_MODE)
+                set_selected_playlist(st.session_state, selected_demo_playlist, DEMO_MODE)
+            elif st.session_state.get("selected_playlist_source") == DEMO_MODE:
+                clear_selected_playlist()
 
     with preview_col:
         st.markdown("#### Included demos")
@@ -285,10 +323,11 @@ if mode == DEMO_MODE:
                     st.write(f"{playlist['tracks']['total']} tracks")
 
     if selected_demo_playlist is None and st.session_state.get("selected_playlist_source") == DEMO_MODE:
-        selected_demo_playlist = get_demo_playlist(st.session_state["selected_playlist_id"])
+        selected_demo_playlist = get_selected_playlist_snapshot(st.session_state)
+
+    update_playlist_indicator(selected_demo_playlist)
 
     if selected_demo_playlist and selected_demo_playlist.get("id"):
-        render_playlist_ready_state(selected_demo_playlist, "Demo playlist ready")
         render_nav_button(
             "pages/3_Playlist_Breakdown.py",
             "Open Breakdown →",
@@ -303,7 +342,6 @@ if mode == SPOTIFY_MODE and authenticated:
     token_info = st.session_state["token_info"]
     sp = spotipy.Spotify(auth=token_info["access_token"])
     st.success("Spotify connected.")
-    st.markdown("### Spotify Playlists")
     st.caption("Choose one from your library or paste a public playlist URL.")
 
     selected_spotify_playlist = None
@@ -326,6 +364,8 @@ if mode == SPOTIFY_MODE and authenticated:
     null_option = "__none__"
 
     current_id = st.session_state.get("selected_playlist_id", null_option)
+    current_reference = st.session_state.get("selected_playlist_reference")
+    current_source = st.session_state.get("selected_playlist_source")
 
     library_col, url_col = st.columns(2, gap="large")
 
@@ -357,28 +397,31 @@ if mode == SPOTIFY_MODE and authenticated:
                 for playlist in filtered_playlists
             }
             filtered_playlist_ids = list(filtered_playlist_options.keys())
-            filtered_default_index = (
-                filtered_playlist_ids.index(current_id) + 1
-                if current_id in filtered_playlist_ids
-                else 0
+            library_select_options = [null_option] + filtered_playlist_ids
+            preferred_library_id = (
+                current_id
+                if current_source == SPOTIFY_MODE and not current_reference and current_id in filtered_playlist_ids
+                else null_option
             )
+            if st.session_state.get(SPOTIFY_LIBRARY_PLAYLIST_WIDGET_KEY) != preferred_library_id:
+                st.session_state[SPOTIFY_LIBRARY_PLAYLIST_WIDGET_KEY] = preferred_library_id
 
             st.caption(f"{len(filtered_playlists)} playlist(s) match.")
 
             if filtered_playlist_ids:
                 selected_id = st.selectbox(
                     "Select a playlist",
-                    [null_option] + filtered_playlist_ids,
+                    library_select_options,
+                    key=SPOTIFY_LIBRARY_PLAYLIST_WIDGET_KEY,
+                    on_change=sync_spotify_library_selection,
                     format_func=lambda x: "Select a playlist" if x == null_option else filtered_playlist_options[x],
-                    index=filtered_default_index,
                 )
 
                 if selected_id != null_option:
-                    for pl in filtered_playlists:
-                        if pl["id"] == selected_id:
-                            set_selected_playlist(pl, SPOTIFY_MODE)
-                            selected_spotify_playlist = pl
-                            break
+                    selected_spotify_playlist = next(
+                        (pl for pl in filtered_playlists if pl["id"] == selected_id),
+                        None,
+                    )
             else:
                 st.info("No playlists match the current search or filter.")
 
@@ -399,6 +442,7 @@ if mode == SPOTIFY_MODE and authenticated:
         try:
             selected_spotify_playlist = get_public_playlist(sp, public_playlist_reference)
             set_selected_playlist(
+                st.session_state,
                 selected_spotify_playlist,
                 SPOTIFY_MODE,
                 reference=public_playlist_reference.strip(),
@@ -407,10 +451,9 @@ if mode == SPOTIFY_MODE and authenticated:
             st.error(str(e))
 
     if selected_spotify_playlist is None and st.session_state.get("selected_playlist_source") == SPOTIFY_MODE:
-        selected_spotify_playlist = get_selected_playlist_snapshot()
+        selected_spotify_playlist = get_selected_playlist_snapshot(st.session_state)
 
-    if selected_spotify_playlist and selected_spotify_playlist.get("id"):
-        render_playlist_ready_state(selected_spotify_playlist, "Spotify playlist ready")
+    update_playlist_indicator(selected_spotify_playlist)
 
     action_cols = st.columns([1, 1])
     with action_cols[0]:
@@ -428,41 +471,96 @@ if mode == SPOTIFY_MODE and authenticated:
 
 # --- Not authenticated: show login flow ---
 else:
-    has_secrets = _secrets_configured()
+    update_playlist_indicator(None)
+    current_redirect_uri = get_runtime_redirect_uri()
+    st.session_state["manual_redirect_uri"] = current_redirect_uri
 
     st.markdown("### Connect Spotify")
     st.caption("Log in to browse your playlists, use public URLs, and export sculpted playlists.")
     render_spotify_setup_help()
 
-    if not has_secrets:
-        with st.container(border=True):
-            st.subheader("Spotify Credentials")
-            st.caption(
-                "Add credentials to `.streamlit/secrets.toml` to skip this form."
-            )
-            st.session_state["manual_client_id"] = st.text_input(
+    with st.container(border=True):
+        st.subheader("Spotify Credentials")
+        st.caption(
+            "Paste your Client ID and Client Secret. None of this info is saved in the app — tokens are kept in session only and you can disconnect at any time to clear them."
+        )
+
+        with st.form("spotify_credentials_form"):
+            st.text_input(
                 "Spotify Client ID",
-                value=st.session_state.get("manual_client_id", ""),
+                key="manual_client_id",
                 help="Find this in your Spotify app settings in the Developer Dashboard.",
             )
-            st.session_state["manual_client_secret"] = st.text_input(
+            st.text_input(
                 "Spotify Client Secret",
+                key="manual_client_secret",
                 type="password",
-                value=st.session_state.get("manual_client_secret", ""),
-                help="Reveal this from the same app settings page and keep it private.",
+                help="Reveal this from the same app settings page and keep it private. Tokens are kept in session only.",
             )
-            st.session_state["manual_redirect_uri"] = st.text_input(
-                "Redirect URI",
-                value=st.session_state.get("manual_redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
-                help="This must exactly match one of the Redirect URIs saved in your Spotify app settings.",
+            submitted_credentials = st.form_submit_button(
+                "Finish Spotify Login" if callback_code else "Validate Credentials"
             )
+
+    if submitted_credentials:
+        client_id, client_secret, _ = get_spotify_credentials()
+        credentials_signature = get_spotify_credentials_signature(client_id, client_secret)
+        credentials_valid, validation_message = validate_spotify_credentials(
+            client_id,
+            client_secret,
+        )
+        if credentials_valid:
+            previous_pending_state = st.session_state.get(SPOTIFY_PENDING_AUTH_STATE_KEY)
+            clear_pending_spotify_auth(previous_pending_state)
+            pending_auth_state = create_pending_spotify_auth(
+                client_id,
+                client_secret,
+                current_redirect_uri,
+            )
+            st.session_state[SPOTIFY_PENDING_AUTH_STATE_KEY] = pending_auth_state
+            st.session_state[SPOTIFY_PENDING_AUTH_SIGNATURE_KEY] = credentials_signature
+            st.session_state[SPOTIFY_VALIDATED_SIGNATURE_KEY] = credentials_signature
+            st.session_state.pop("spotify_auth_error", None)
+            st.session_state.pop(SPOTIFY_FAILED_EXCHANGE_KEY, None)
+            if callback_code:
+                st.rerun()
+        else:
+            previous_pending_state = st.session_state.pop(SPOTIFY_PENDING_AUTH_STATE_KEY, None)
+            st.session_state.pop(SPOTIFY_PENDING_AUTH_SIGNATURE_KEY, None)
+            clear_pending_spotify_auth(previous_pending_state)
+            st.session_state.pop(SPOTIFY_VALIDATED_SIGNATURE_KEY, None)
+            st.session_state["spotify_auth_error"] = validation_message
 
     client_id, client_secret, redirect_uri = get_spotify_credentials()
+    credentials_signature = get_spotify_credentials_signature(client_id, client_secret)
+    pending_auth_state = st.session_state.get(SPOTIFY_PENDING_AUTH_STATE_KEY)
+    credentials_validated = (
+        credentials_signature
+        and st.session_state.get(SPOTIFY_VALIDATED_SIGNATURE_KEY) == credentials_signature
+        and st.session_state.get(SPOTIFY_PENDING_AUTH_SIGNATURE_KEY) == credentials_signature
+    )
 
-    if client_id and client_secret and redirect_uri:
-        auth_url = SpotifyAuthManager.get_auth_url(
-            client_id, client_secret, redirect_uri
+    if callback_code and not (client_id and client_secret):
+        st.info(
+            "Spotify sent you back with an authorization code. Enter your Client ID and Client Secret above to finish the login."
         )
-        st.link_button("Connect Spotify", auth_url)
-    elif has_secrets:
-        st.error("Spotify credentials in secrets.toml are incomplete.")
+
+    auth_error = st.session_state.get("spotify_auth_error")
+    if auth_error:
+        st.error(auth_error)
+
+    if (
+        client_id
+        and client_secret
+        and redirect_uri
+        and credentials_validated
+        and pending_auth_state
+        and not callback_code
+    ):
+        auth_url = SpotifyAuthManager.get_auth_url(
+            client_id,
+            client_secret,
+            redirect_uri,
+            state=pending_auth_state,
+        )
+        st.success("Credentials look good. Continue to Spotify and approve access.")
+        render_spotify_continue_link(auth_url)

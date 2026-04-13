@@ -4,29 +4,10 @@ from html import escape
 st.set_page_config(page_title="PlayPlay.qr8", layout="wide")
 
 from src.audio_features import WELCOME_AUDIO_METRICS
-from src.auth import SpotifyAuthManager, get_spotify_credentials
-from src.theme import apply_spotify_theme, render_nav_button
+from src.session_state import store_spotify_callback_payload
+from src.theme import apply_spotify_theme, render_brand_wordmark, render_nav_button
 
 apply_spotify_theme()
-
-# Handle Spotify OAuth callback — the redirect URI lands here at the app root.
-# Exchange the code for a token before navigating, because query params don't
-# survive `st.switch_page`.
-query_code = st.query_params.get("code")
-if query_code and "token_info" not in st.session_state:
-    client_id, client_secret, redirect_uri = get_spotify_credentials()
-    if client_id and client_secret and redirect_uri:
-        try:
-            token_info = SpotifyAuthManager.exchange_code(
-                query_code, client_id, client_secret, redirect_uri
-            )
-            st.session_state["token_info"] = token_info
-            st.query_params.clear()
-            st.switch_page("pages/2_Connect_and_Select.py")
-        except Exception as e:
-            st.error(f"Failed to exchange Spotify auth code: {e}")
-    else:
-        st.error("Spotify credentials are missing — cannot complete login.")
 
 def render_about_page() -> None:
     st.title("About")
@@ -65,7 +46,7 @@ def render_about_page() -> None:
 
 
 with st.sidebar:
-    st.title("PlayPlay.qr8")
+    render_brand_wordmark(level=3)
 
 about_page = st.Page(render_about_page, title="About", default=True)
 connect_page = st.Page("pages/2_Connect_and_Select.py", title="Connect & Select")
@@ -77,4 +58,14 @@ pg = st.navigation(
     [about_page, connect_page, breakdown_page, inspector_page, sculptor_page],
     position="sidebar",
 )
+
+# Handle Spotify OAuth callback — the redirect URI lands here at the app root.
+# Route to Connect & Select after navigation is registered.
+query_code = st.query_params.get("code")
+query_state = st.query_params.get("state")
+if query_code:
+    store_spotify_callback_payload(st.session_state, query_code, query_state)
+    st.query_params.clear()
+    st.switch_page(connect_page)
+
 pg.run()

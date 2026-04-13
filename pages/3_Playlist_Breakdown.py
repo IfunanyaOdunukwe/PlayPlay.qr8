@@ -6,14 +6,11 @@ from src.ingestion import load_cache_metadata, load_from_cache
 from src.auth import SpotifyAuthManager
 from src.audio_features import AUDIO_FEATURE_DEFINITIONS, AUDIO_FEATURE_HELP, KEY_LABELS, MODE_LABELS
 from src.demo import get_demo_playlist_df, fetch_spotify_playlist_data_with_fallback
+from src.session_state import get_selected_playlist_snapshot
 from src.theme import apply_spotify_theme, render_nav_button, render_playlist_indicator
 
 apply_spotify_theme()
-
-st.title("Playlist Breakdown")
-st.write(
-    "Load the playlist, review the track table, then open the Vibe Inspector."
-)
+st.title("")
 
 # Developer mode toggle controls visibility of hidden columns in the table
 with st.sidebar:
@@ -24,13 +21,9 @@ with st.sidebar:
     )
 st.session_state["developer_mode"] = developer_mode
 
-playlist_name = st.session_state.get('selected_playlist')
-playlist_id = st.session_state.get('selected_playlist_id')
-playlist_source = st.session_state.get("selected_playlist_source", "spotify")
-playlist_owner = st.session_state.get("selected_playlist_owner") or "Unknown"
-playlist_track_total = st.session_state.get("selected_playlist_track_total")
+selected_playlist = get_selected_playlist_snapshot(st.session_state)
 
-if not playlist_name or not playlist_id:
+if not selected_playlist:
     st.warning("No playlist selected.")
     render_nav_button(
         "pages/2_Connect_and_Select.py",
@@ -40,16 +33,18 @@ if not playlist_name or not playlist_id:
     )
     st.stop()
 
-with st.sidebar:
-    st.caption(f"🎵 {playlist_name}")
-    if playlist_source == "demo":
-        st.caption("Demo playlist")
+playlist_name = selected_playlist["name"]
+playlist_id = selected_playlist["id"]
+playlist_source = selected_playlist.get("source") or "spotify"
+playlist_track_total = (selected_playlist.get("tracks") or {}).get("total")
 
-st.markdown("### Selected Playlist")
 render_playlist_indicator(
     "Current Playlist",
     playlist_name,
     note="Using local demo CSV data. No Spotify login needed." if playlist_source == "demo" else None,
+)
+st.write(
+    "Load the playlist, review the track table, then open the Vibe Inspector."
 )
 if st.session_state.get("developer_mode", False):
     st.caption(f"Playlist ID: {playlist_id}")
@@ -59,19 +54,15 @@ if st.session_state.get("developer_mode", False):
 show_df_key = f"show_playlist_df_{playlist_id}"
 last_playlist_key = "last_playlist_id_for_df"
 
-st.markdown("### Load Data")
-with st.container(border=True):
-    if playlist_source == "demo":
-        st.caption("Load the bundled demo CSV.")
-        load_pressed = st.button("Load Demo Data")
-        force_refresh = False
-    else:
-        st.caption("Use cache or refresh from Spotify.")
-        col_btn, col_refresh = st.columns([1, 1])
-        with col_btn:
-            load_pressed = st.button("Load Data")
-        with col_refresh:
-            force_refresh = st.toggle("Force refresh from Spotify", value=False, help="Fetch fresh data even if cache exists.")
+if playlist_source == "demo":
+    load_pressed = st.button("Load Data")
+    force_refresh = False
+else:
+    col_btn, col_refresh = st.columns([1, 1])
+    with col_btn:
+        load_pressed = st.button("Load Data")
+    with col_refresh:
+        force_refresh = st.toggle("Force refresh from Spotify", value=False, help="Fetch fresh data even if cache exists.")
 
 # If playlist changes, reset the flag
 if st.session_state.get(last_playlist_key) != playlist_id:
@@ -90,10 +81,9 @@ def render_load_notices(df, metadata=None, loaded_from_cache=False):
         return
 
     if metadata and metadata.get("tracks_missing_audio_features"):
-        refresh_hint = " Turn on Force refresh from Spotify to rebuild the cache." if loaded_from_cache else ""
         st.warning(
             f"Reccobeats did not return audio features for {metadata['tracks_missing_audio_features']} track(s), "
-            f"so they were excluded from analysis.{refresh_hint}"
+            f"so they were excluded from analysis."
         )
 
     unavailable_playlist_items = metadata.get("unavailable_playlist_items") if metadata else None
@@ -104,9 +94,8 @@ def render_load_notices(df, metadata=None, loaded_from_cache=False):
         )
 
     if (not metadata or metadata.get("tracks_missing_audio_features") is None) and playlist_track_total and loaded_count < playlist_track_total:
-        refresh_hint = " Turn on Force refresh from Spotify to rebuild the cache." if loaded_from_cache else ""
         st.info(
-            f"Spotify reports {playlist_track_total} playlist items, but only {loaded_count} are available for analysis.{refresh_hint}"
+            f"Spotify reports {playlist_track_total} playlist items, but only {loaded_count} are available for analysis."
         )
 
 if show_df or load_pressed:

@@ -8,6 +8,7 @@ from src.auth import SpotifyAuthManager
 from src.demo import get_demo_playlist_df
 from src.llm_providers import get_chat_model
 from src.agent import generate_response, apply_proposal, compute_comparison, SculptorProposal
+from src.session_state import get_selected_playlist_snapshot
 from src.rate_limiter import (
     SESSION_MESSAGE_CAP,
     validate_prompt,
@@ -18,22 +19,14 @@ from src.rate_limiter import (
 from src.theme import apply_spotify_theme, render_nav_button, render_playlist_indicator
 
 apply_spotify_theme()
-
-st.title("Playlist Sculptor")
-st.write(
-    "Review the working playlist, ask for changes, and export the result to Spotify if you want."
-)
+st.title("")
 
 # ---------------------------------------------------------------------------
 # Guards
 # ---------------------------------------------------------------------------
-playlist_name = st.session_state.get("selected_playlist")
-playlist_id = st.session_state.get("selected_playlist_id")
-playlist_source = st.session_state.get("selected_playlist_source", "spotify")
-playlist_owner = st.session_state.get("selected_playlist_owner") or "Unknown"
-playlist_track_total = st.session_state.get("selected_playlist_track_total")
+selected_playlist = get_selected_playlist_snapshot(st.session_state)
 
-if not playlist_name or not playlist_id:
+if not selected_playlist:
     st.warning("No playlist selected.")
     render_nav_button(
         "pages/2_Connect_and_Select.py",
@@ -42,6 +35,15 @@ if not playlist_name or not playlist_id:
         key="sculptor_open_connect",
     )
     st.stop()
+
+playlist_name = selected_playlist["name"]
+playlist_id = selected_playlist["id"]
+playlist_source = selected_playlist.get("source") or "spotify"
+
+render_playlist_indicator("Current Playlist", playlist_name)
+st.write(
+    "Review the working playlist, ask for changes, and export the result to Spotify if you want."
+)
 
 _cache_key = f"_cached_df_{playlist_id}"
 if _cache_key not in st.session_state:
@@ -123,17 +125,9 @@ with st.sidebar:
         remaining = SESSION_MESSAGE_CAP - st.session_state.get("sculptor_session_count", 0)
         st.caption(f"Session messages left: **{remaining}/{SESSION_MESSAGE_CAP}**")
 
-    st.divider()
-    st.caption(f"🎵 {playlist_name}")
-    if playlist_source == "demo":
-        st.caption("Demo playlist")
-
 # ---------------------------------------------------------------------------
 # Working playlist stats bar
 # ---------------------------------------------------------------------------
-st.markdown("### Working Playlist")
-render_playlist_indicator("Current Playlist", playlist_name)
-
 st.markdown("#### Stats")
 
 stat_cols = st.columns(5)

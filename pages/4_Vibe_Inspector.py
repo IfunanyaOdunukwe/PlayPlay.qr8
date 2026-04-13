@@ -4,6 +4,7 @@ st.set_page_config(page_title="Vibe Inspector | PlayPlay.qr8", layout="wide")
 import pandas as pd
 from src.ingestion import load_from_cache
 from src.demo import get_demo_playlist_df
+from src.session_state import get_selected_playlist_snapshot
 from src.theme import (
     SPOTIFY_GREEN,
     SPOTIFY_GRID,
@@ -19,11 +20,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 apply_spotify_theme()
-
-st.title("Vibe Inspector")
-st.write(
-    "Review the playlist summary, compare tracks, and spot broader patterns before sculpting."
-)
+st.title("")
 
 PLOTLY_TEMPLATE = SPOTIFY_PLOTLY_TEMPLATE
 METRIC_COLOR_MAP = SPOTIFY_METRIC_COLOR_MAP
@@ -113,12 +110,9 @@ def describe_acousticness(mean: float) -> str:
 
 
 # Ensure a playlist is selected
-playlist_name = st.session_state.get('selected_playlist')
-playlist_id = st.session_state.get('selected_playlist_id')
-playlist_source = st.session_state.get("selected_playlist_source", "spotify")
-playlist_owner = st.session_state.get("selected_playlist_owner") or "Unknown"
+selected_playlist = get_selected_playlist_snapshot(st.session_state)
 
-if not playlist_name or not playlist_id:
+if not selected_playlist:
     st.warning("No playlist selected.")
     render_nav_button(
         "pages/2_Connect_and_Select.py",
@@ -128,6 +122,14 @@ if not playlist_name or not playlist_id:
     )
     st.stop()
 
+playlist_name = selected_playlist["name"]
+playlist_id = selected_playlist["id"]
+playlist_source = selected_playlist.get("source") or "spotify"
+
+render_playlist_indicator("Current Playlist", playlist_name)
+st.write(
+    "Review the playlist summary, compare tracks, and spot broader patterns before sculpting."
+)
 
 # Load cached data (use session state to avoid re-reading JSON on every rerun)
 _cache_key = f"_cached_df_{playlist_id}"
@@ -150,14 +152,6 @@ if df is None or df.empty:
         key="inspector_open_breakdown",
     )
     st.stop()
-
-with st.sidebar:
-    st.caption(f"🎵 {playlist_name}")
-    if playlist_source == "demo":
-        st.caption("Demo playlist")
-
-st.markdown("### Playlist Overview")
-render_playlist_indicator("Current Playlist", playlist_name)
 
 st.markdown("#### Summary")
 

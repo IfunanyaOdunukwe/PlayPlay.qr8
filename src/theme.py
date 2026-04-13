@@ -415,14 +415,42 @@ def apply_spotify_theme() -> None:
             }}
 
             .spotify-current-playlist {{
-                margin-top: 0.25rem;
-                margin-bottom: 0.55rem;
-                padding: 1rem 1.1rem;
-                border-radius: 22px;
-                border: 1px solid rgba(30, 215, 96, 0.22);
-                background: rgba(0, 0, 0, 0.34);
-                box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+                margin-top: 0.15rem;
+                margin-bottom: 0.4rem;
+                padding: 0;
+                border: none;
+                background: transparent;
+                box-shadow: none;
                 overflow: hidden;
+            }}
+
+            .spotify-current-playlist-name {{
+                display: inline-flex;
+                align-items: center;
+                gap: 0.63rem;
+                padding: 0.45rem 0.93rem;
+                border-radius: 999px;
+                border: 1px solid #ff2bd6;
+                background: rgba(24, 8, 22, 0.92);
+                box-shadow: inset 0 0 0.65rem rgba(30, 215, 96, 0.36), 0 0 0.55rem rgba(255, 43, 214, 0.32);
+                color: {SPOTIFY_TEXT};
+                font-size: 1.25rem;
+                font-weight: 600;
+                line-height: 1.15;
+                max-width: 100%;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }}
+
+            .spotify-current-playlist-name::before {{
+                content: "";
+                width: 0.63rem;
+                height: 0.63rem;
+                border-radius: 999px;
+                background: #1ed760;
+                box-shadow: 0 0 0 0.27rem rgba(30, 215, 96, 0.34);
+                flex: 0 0 auto;
             }}
 
             .spotify-current-playlist-kicker {{
@@ -450,16 +478,20 @@ def apply_spotify_theme() -> None:
                 flex: 0 0 auto;
             }}
 
-            .spotify-current-playlist h3 {{
+            .spotify-wordmark {{
                 margin: 0;
-                font-size: clamp(1.1rem, 2vw, 1.4rem);
-                line-height: 1.2;
+                line-height: 1.05;
+                letter-spacing: -0.03em;
             }}
 
-            .spotify-current-playlist p {{
-                margin: 0.4rem 0 0;
-                color: {SPOTIFY_MUTED};
-                line-height: 1.5;
+            .spotify-wordmark-play {{
+                color: {SPOTIFY_GREEN};
+                text-shadow: 0 0 0.55rem rgba(30, 215, 96, 0.35);
+            }}
+
+            .spotify-wordmark-dotqr8 {{
+                color: #ff2bd6;
+                text-shadow: 0 0 0.55rem rgba(255, 43, 214, 0.35);
             }}
 
             @media (max-width: 900px) {{
@@ -478,14 +510,24 @@ def apply_spotify_theme() -> None:
 
 
 def render_playlist_indicator(label: str, playlist_name: str, note: str | None = None) -> None:
-    note_markup = f"<p>{escape(note)}</p>" if note else ""
     st.markdown(
         f"""
         <section class="spotify-current-playlist">
-            <div class="spotify-current-playlist-kicker">{escape(label)}</div>
-            <h3>{escape(playlist_name)}</h3>
-            {note_markup}
+            <span class="spotify-current-playlist-name">{escape(playlist_name)}</span>
         </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_brand_wordmark(level: int = 1) -> None:
+    heading_level = min(max(level, 1), 6)
+    tag = f"h{heading_level}"
+    st.markdown(
+        f"""
+        <{tag} class="spotify-wordmark">
+            <span class="spotify-wordmark-play">PlayPlay</span><span class="spotify-wordmark-dotqr8">.qr8</span>
+        </{tag}>
         """,
         unsafe_allow_html=True,
     )
