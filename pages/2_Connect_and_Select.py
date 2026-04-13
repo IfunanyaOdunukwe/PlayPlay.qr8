@@ -153,7 +153,7 @@ def render_spotify_setup_help():
             2. Open the app settings, copy the **Client ID**, and use **View client secret** to reveal the **Client Secret**.
             3. In **APIs used**, choose **Web API**.
             4. In **Redirect URIs**, add the following:
-                - `https://playplayqr8.streamlit.app/`
+                - `https://playplayqr8.streamlit.app`
                 - `http://127.0.0.1:8501` (add this one if you plan to run the app locally)
             5. Save the app, then paste the **Client ID** and **Client Secret** into the form below.
 
