@@ -3,9 +3,8 @@ st.set_page_config(page_title="Playlist Sculptor | PlayPlay.qr8", layout="wide")
 
 import spotipy
 import pandas as pd
-from src.ingestion import load_from_cache
 from src.auth import SpotifyAuthManager
-from src.demo import get_demo_playlist_df
+from src.demo import load_playlist_df
 from src.llm_providers import get_chat_model
 from src.agent import generate_response, apply_proposal, compute_comparison, SculptorProposal
 from src.session_state import get_selected_playlist_snapshot
@@ -48,11 +47,8 @@ st.write(
 _cache_key = f"_cached_df_{playlist_id}"
 if _cache_key not in st.session_state:
     try:
-        if playlist_source == "demo":
-            st.session_state[_cache_key] = get_demo_playlist_df(playlist_id)
-        else:
-            st.session_state[_cache_key] = load_from_cache(playlist_id)
-    except Exception as e:
+        st.session_state[_cache_key] = load_playlist_df(playlist_id, playlist_source)
+    except (FileNotFoundError, KeyError, ValueError) as e:
         st.error(f"Failed to load playlist data: {e}")
         st.stop()
 df_cached = st.session_state[_cache_key]

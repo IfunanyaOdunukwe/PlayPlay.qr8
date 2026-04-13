@@ -1,13 +1,18 @@
-import os  # Applied: Singular import as per "General Code Quality Guidelines #1"
+from __future__ import annotations
+
 import json
+import logging
+import os
+
 import pandas as pd
+import requests
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-import time
-import requests  # Applied: Singular import as per "General Code Quality Guidelines #1"
+
+logger = logging.getLogger(__name__)
 
 CACHE_DIR = "cache"
 CACHE_METADATA_SUFFIX = ".meta.json"
+RECCOBEATS_BATCH_SIZE = 40
 AUDIO_FEATURE_COLUMNS = [
     "danceability",
     "energy",
@@ -24,37 +29,34 @@ AUDIO_FEATURE_COLUMNS = [
 ]
 
 
-def ensure_cache_dir():
-    if not os.path.exists(CACHE_DIR):
-        os.makedirs(CACHE_DIR)
+def ensure_cache_dir() -> None:
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-def get_cache_path(playlist_id):
+def get_cache_path(playlist_id: str) -> str:
     return os.path.join(CACHE_DIR, f"{playlist_id}.json")
 
 
-def get_cache_metadata_path(playlist_id):
+def get_cache_metadata_path(playlist_id: str) -> str:
     return os.path.join(CACHE_DIR, f"{playlist_id}{CACHE_METADATA_SUFFIX}")
 
 
-def load_from_cache(playlist_id):
+def load_from_cache(playlist_id: str) -> pd.DataFrame | None:
     """Try to load playlist data from local JSON."""
     ensure_cache_dir()
     path = get_cache_path(playlist_id)
     if os.path.exists(path):
-        # Check if cache is older than 24 hours (optional logic)
-        # for now, just load it
         try:
             df = pd.read_json(path)
-            print(f"Loaded {len(df)} tracks from cache: {playlist_id}")
+            logger.info("Loaded %d tracks from cache: %s", len(df), playlist_id)
             return df
-        except Exception as e:
-            print(f"Error loading cache: {e}")
+        except (ValueError, OSError) as e:
+            logger.warning("Error loading cache: %s", e)
             return None
     return None
 
 
-def load_cache_metadata(playlist_id):
+def load_cache_metadata(playlist_id: str) -> dict | None:
     """Load playlist ingestion metadata from local JSON."""
     ensure_cache_dir()
     path = get_cache_metadata_path(playlist_id)
@@ -62,56 +64,56 @@ def load_cache_metadata(playlist_id):
         try:
             with open(path, "r") as f:
                 return json.load(f)
-        except Exception as e:
-            print(f"Error loading cache metadata: {e}")
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Error loading cache metadata: %s", e)
             return None
     return None
 
 
-def save_to_cache(playlist_id, df, metadata=None):
+def save_to_cache(
+    playlist_id: str, df: pd.DataFrame, metadata: dict | None = None
+) -> None:
     """Save dataframe and optional ingestion metadata to local JSON."""
     ensure_cache_dir()
     path = get_cache_path(playlist_id)
     df.to_json(path)
-    print(f"Cached {len(df)} tracks to {path}")
+    logger.info("Cached %d tracks to %s", len(df), path)
     if metadata is not None:
         metadata_path = get_cache_metadata_path(playlist_id)
         with open(metadata_path, "w") as f:
             json.dump(metadata, f)
 
 
-def fetch_audio_features_reccobeats(track_ids, api_key=None):
-    """
-    Fetch audio features from Reccobeats API for a list of Spotify track IDs.
-    """
-    # Build comma-separated list for GET request
-    ids_param = ','.join(track_ids)
+def fetch_audio_features_reccobeats(
+    track_ids: list[str], api_key: str | None = None
+) -> list[dict]:
+    """Fetch audio features from Reccobeats API for a list of Spotify track IDs."""
+    ids_param = ",".join(track_ids)
     url = f"https://api.reccobeats.com/v1/audio-features?ids={ids_param}"
-    headers = {"Accept": "application/json"}
+    headers: dict[str, str] = {"Accept": "application/json"}
     if api_key:
         headers["x-api-key"] = api_key
-    print(f"[DEBUG] Requesting Reccobeats audio features for IDs: {ids_param}")
-    print(f"[DEBUG] Request URL: {url}")
+    logger.debug("Requesting Reccobeats audio features for %d IDs", len(track_ids))
     try:
         response = requests.get(url, headers=headers, timeout=15)
-        print(f"[DEBUG] Response status: {response.status_code}")
-        print(f"[DEBUG] Response text: {response.text[:500]}")  # Print first 500 chars for brevity
+        logger.debug("Reccobeats response status: %d", response.status_code)
         response.raise_for_status()
         data = response.json()
         features = data.get("content", [])
-        # Extract Spotify track ID from 'href' and add as 'spotify_id'
-        for f in features:
-            href = f.get("href", "")
+        for feature in features:
+            href = feature.get("href", "")
             if "open.spotify.com/track/" in href:
-                f["spotify_id"] = href.split("/track/")[-1]
-        print(f"[DEBUG] Parsed features: {features}")
+                feature["spotify_id"] = href.split("/track/")[-1]
+        logger.debug("Parsed %d audio features", len(features))
         return features
-    except Exception as e:
-        print(f"Error fetching audio features from Reccobeats: {e}")
+    except requests.RequestException as e:
+        logger.warning("Error fetching audio features from Reccobeats: %s", e)
         return []
 
 
-def merge_tracks_with_audio_features(df_tracks, df_features):
+def merge_tracks_with_audio_features(
+    df_tracks: pd.DataFrame, df_features: pd.DataFrame
+) -> pd.DataFrame:
     """Keep only tracks with Reccobeats audio features."""
     if df_tracks.empty or df_features.empty or 'spotify_id' not in df_features.columns:
         return df_tracks.iloc[0:0].copy()
@@ -126,7 +128,12 @@ def merge_tracks_with_audio_features(df_tracks, df_features):
     return pd.merge(df_tracks, df_features, left_on='id', right_on='spotify_id', how='inner')
 
 
-def build_ingestion_metadata(playlist_item_total, df_tracks, df_features, df_final):
+def build_ingestion_metadata(
+    playlist_item_total: int | None,
+    df_tracks: pd.DataFrame,
+    df_features: pd.DataFrame,
+    df_final: pd.DataFrame,
+) -> dict:
     """Summarize which playlist items were excluded during ingestion."""
     spotify_track_total = len(df_tracks)
     audio_feature_track_total = 0
@@ -148,70 +155,61 @@ def build_ingestion_metadata(playlist_item_total, df_tracks, df_features, df_fin
     }
 
 
-def fetch_playlist_data(sp, playlist_id, force_refresh=False, reccobeats_api_key=None):
-    """
-    Main orchestration function.
-    1. Check Cache.
-    2. If no cache, fetch Tracks.
-    3. Fetch Audio Features (Batched).
-    4. Merge and Save.
-    """
+def fetch_playlist_data(
+    sp: spotipy.Spotify,
+    playlist_id: str,
+    force_refresh: bool = False,
+    reccobeats_api_key: str | None = None,
+) -> pd.DataFrame:
+    """Fetch tracks + audio features, merge, and cache. Returns from cache when possible."""
     if not force_refresh:
         df_cached = load_from_cache(playlist_id)
         if df_cached is not None:
             return df_cached
 
-    print(f"Fetching fresh data for {playlist_id}...")
+    logger.info("Fetching fresh data for %s", playlist_id)
 
-    # 1. Fetch all tracks (Pagination)
-    tracks_data = []
-    # Explicitly set limit to 100 to avoid limit=0 bug
-    results = sp.playlist_items(playlist_id, additional_types=['track'], limit=100)
-    playlist_item_total = results.get('total')
-    tracks = results['items']
+    # 1. Fetch all tracks (paginated)
+    tracks_data: list[dict] = []
+    results = sp.playlist_items(playlist_id, additional_types=["track"], limit=100)
+    playlist_item_total = results.get("total")
+    tracks = results["items"]
 
-    while results['next']:
+    while results["next"]:
         results = sp.next(results)
-        tracks.extend(results['items'])
+        tracks.extend(results["items"])
 
-    # Parse track metadata
     for item in tracks:
-        track = item.get('track')
-        if not track or track['id'] is None:
-            continue  # Skip local files or bad data
+        track = item.get("track")
+        if not track or track["id"] is None:
+            continue
         tracks_data.append({
-            'id': track['id'],
-            'name': track['name'],
-            'artist': track['artists'][0]['name'],
-            'album': track['album']['name'],
-            'uri': track['uri'],
-            'image_url': track['album']['images'][0]['url'] if track['album']['images'] else None,
-            'external_url': track['external_urls'].get('spotify')
+            "id": track["id"],
+            "name": track["name"],
+            "artist": track["artists"][0]["name"],
+            "album": track["album"]["name"],
+            "uri": track["uri"],
+            "image_url": track["album"]["images"][0]["url"] if track["album"]["images"] else None,
+            "external_url": track["external_urls"].get("spotify"),
         })
 
     df_tracks = pd.DataFrame(tracks_data)
 
     if df_tracks.empty:
-        return pd.DataFrame()  # Return empty if no tracks found
+        return pd.DataFrame()
 
-    # 2. Fetch Audio Features from Reccobeats (Batching 100 at a time)
-    track_ids = df_tracks['id'].tolist()
-    audio_features = []
-    batch_size = 40
-    for i in range(0, len(track_ids), batch_size):
-        batch = track_ids[i:i + batch_size]
-        print(f"Requesting audio features for batch: {batch}")  # Debug: show batch
+    # 2. Fetch audio features from Reccobeats in batches
+    track_ids = df_tracks["id"].tolist()
+    audio_features: list[dict] = []
+    for i in range(0, len(track_ids), RECCOBEATS_BATCH_SIZE):
+        batch = track_ids[i : i + RECCOBEATS_BATCH_SIZE]
         features = fetch_audio_features_reccobeats(batch, api_key=reccobeats_api_key)
-        print(f"Reccobeats response for batch: {features}")  # Debug: show response
-        audio_features.extend([f for f in features if f is not None])
+        audio_features.extend(f for f in features if f is not None)
 
     df_features = pd.DataFrame(audio_features)
-    print(f"Fetched {len(df_features)} audio features. Columns: {df_features.columns.tolist()}")  # Debug: show features DataFrame
-    if not df_features.empty:
-        print(df_features.head())  # Debug: show first few rows
+    logger.info("Fetched %d audio features", len(df_features))
 
     # 3. Merge
-    # Merge on Spotify track ID (df_tracks['id'] <-> df_features['spotify_id'])
     df_final = merge_tracks_with_audio_features(df_tracks, df_features)
     metadata = build_ingestion_metadata(playlist_item_total, df_tracks, df_features, df_final)
 

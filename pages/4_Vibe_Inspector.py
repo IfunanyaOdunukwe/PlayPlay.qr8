@@ -2,8 +2,8 @@ import streamlit as st
 st.set_page_config(page_title="Vibe Inspector | PlayPlay.qr8", layout="wide")
 
 import pandas as pd
-from src.ingestion import load_from_cache
-from src.demo import get_demo_playlist_df
+from src.audio_features import normalize_mode_series
+from src.demo import load_playlist_df
 from src.session_state import get_selected_playlist_snapshot
 from src.theme import (
     SPOTIFY_GREEN,
@@ -26,34 +26,21 @@ PLOTLY_TEMPLATE = SPOTIFY_PLOTLY_TEMPLATE
 METRIC_COLOR_MAP = SPOTIFY_METRIC_COLOR_MAP
 PRIMARY_COLOR = SPOTIFY_GREEN
 
-# Utility helpers
-def _to_float(val):
-    try:
-        return float(val)
-    except Exception:
-        return None
-
 def sanitize_numeric_series(series: pd.Series, zero_invalid: bool = False) -> pd.Series:
-    s = pd.to_numeric(series, errors="coerce")
-    s = s.dropna()
+    s = pd.to_numeric(series, errors="coerce").dropna()
     if zero_invalid:
         s = s[s > 0]
     return s
 
-def sanitize_value(val, zero_invalid: bool = False):
-    num = _to_float(val)
-    if num is None:
+
+def sanitize_value(val: object, zero_invalid: bool = False) -> float | None:
+    try:
+        num = float(val)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
         return None
     if zero_invalid and num == 0:
         return None
     return num
-
-
-def normalize_mode_numeric_series(series: pd.Series) -> pd.Series:
-    mode_text = series.astype("string").str.strip().str.lower()
-    mode_numeric = pd.to_numeric(series, errors="coerce")
-    mode_from_text = mode_text.map({"minor": 0, "major": 1})
-    return mode_from_text.where(mode_from_text.notna(), mode_numeric)
 
 
 def describe_valence(mean: float) -> str:
@@ -135,11 +122,8 @@ st.write(
 _cache_key = f"_cached_df_{playlist_id}"
 if _cache_key not in st.session_state:
     try:
-        if playlist_source == "demo":
-            st.session_state[_cache_key] = get_demo_playlist_df(playlist_id)
-        else:
-            st.session_state[_cache_key] = load_from_cache(playlist_id)
-    except Exception as e:
+        st.session_state[_cache_key] = load_playlist_df(playlist_id, playlist_source)
+    except (FileNotFoundError, KeyError, ValueError) as e:
         st.error(f"Failed to load playlist data: {e}")
         st.stop()
 df = st.session_state[_cache_key]
@@ -160,7 +144,7 @@ summary_specs = [
     ("Danceability", "danceability", describe_danceability, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}%"),
     ("Energy", "energy", describe_energy, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}%"),
     ("Tempo", "tempo", describe_tempo, lambda series: sanitize_numeric_series(series, zero_invalid=True), lambda mean: f"{mean:.0f} BPM"),
-    ("Mode", "mode", describe_mode, lambda series: normalize_mode_numeric_series(series).dropna(), lambda mean: f"{mean * 100:.0f}% Major"),
+    ("Mode", "mode", describe_mode, lambda series: normalize_mode_series(series).dropna(), lambda mean: f"{mean * 100:.0f}% Major"),
     ("Acousticness", "acousticness", describe_acousticness, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}%"),
 ]
 
@@ -314,7 +298,7 @@ else:
         {
             "valence": pd.to_numeric(df["valence"], errors="coerce"),
             "energy": pd.to_numeric(df["energy"], errors="coerce"),
-            "mode": normalize_mode_numeric_series(df["mode"]),
+            "mode": normalize_mode_series(df["mode"]),
         },
         index=df.index,
     )
@@ -382,10 +366,7 @@ if tempo_series.empty:
     st.info("Tempo data unavailable or non-numeric in this playlist.")
 else:
     # Toggle: False -> Histogram, True -> Violin (fallback to checkbox if toggle not available)
-    try:
-        show_violin = st.toggle("Violin view", value=False, help="Switch between histogram and violin plot")
-    except Exception:
-        show_violin = st.checkbox("Violin view", value=False, help="Switch between histogram and violin plot")
+    show_violin = st.toggle("Violin view", value=False, help="Switch between histogram and violin plot")
 
 
     # Add song info to hover for tempo plots

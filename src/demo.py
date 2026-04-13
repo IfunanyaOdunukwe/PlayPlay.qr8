@@ -8,7 +8,9 @@ import pandas as pd
 import requests
 import spotipy
 
+from src.audio_features import normalize_mode_series
 from src.ingestion import (
+    RECCOBEATS_BATCH_SIZE,
     build_ingestion_metadata,
     fetch_audio_features_reccobeats,
     fetch_playlist_data,
@@ -41,10 +43,6 @@ CANONICAL_DEMO_COLUMNS = [
     "tempo",
     "spotify_id",
 ]
-MODE_VALUE_MAP = {
-    "minor": 0,
-    "major": 1,
-}
 
 
 def _load_demo_manifest() -> pd.DataFrame:
@@ -66,10 +64,7 @@ def _normalize_demo_playlist_df(df: pd.DataFrame) -> pd.DataFrame:
         df["spotify_id"] = df["id"]
 
     if "mode" in df.columns:
-        mode_text = df["mode"].astype("string").str.strip().str.lower()
-        mode_numeric = pd.to_numeric(df["mode"], errors="coerce")
-        mode_mapped = mode_text.map(MODE_VALUE_MAP)
-        df["mode"] = mode_mapped.where(mode_mapped.notna(), mode_numeric)
+        df["mode"] = normalize_mode_series(df["mode"])
 
     for column in CANONICAL_DEMO_COLUMNS:
         if column not in df.columns:
@@ -244,10 +239,9 @@ def _merge_tracks_with_features(
         return empty_df, build_ingestion_metadata(0, empty_df, empty_df, empty_df)
 
     track_ids = df_tracks["id"].tolist()
-    audio_features = []
-    batch_size = 40
-    for start in range(0, len(track_ids), batch_size):
-        batch = track_ids[start:start + batch_size]
+    audio_features: list[dict] = []
+    for start in range(0, len(track_ids), RECCOBEATS_BATCH_SIZE):
+        batch = track_ids[start : start + RECCOBEATS_BATCH_SIZE]
         features = fetch_audio_features_reccobeats(batch, api_key=reccobeats_api_key)
         audio_features.extend([feature for feature in features if feature is not None])
 
@@ -295,3 +289,14 @@ def fetch_spotify_playlist_data_with_fallback(
             playlist_id,
             reccobeats_api_key=reccobeats_api_key,
         )
+
+
+def load_playlist_df(playlist_id: str, playlist_source: str) -> pd.DataFrame | None:
+    """Load a playlist DataFrame from demo CSV or JSON cache.
+
+    This is the shared entry point used by pages that need read-only
+    access to an already-ingested playlist.
+    """
+    if playlist_source == "demo":
+        return get_demo_playlist_df(playlist_id)
+    return load_from_cache(playlist_id)

@@ -93,3 +93,22 @@ MODE_LABELS = {
     0: "Minor",
     1: "Major",
 }
+
+MODE_VALUE_MAP: dict[str, int] = {
+    "minor": 0,
+    "major": 1,
+}
+
+
+def normalize_mode_series(series: "pd.Series") -> "pd.Series":
+    """Convert a mode column (text or numeric) to canonical 0/1 integers.
+
+    Handles mixed columns where some rows are "major"/"minor" strings
+    and others are already 0/1 numeric values.
+    """
+    import pandas as pd
+
+    mode_text = series.astype("string").str.strip().str.lower()
+    mode_numeric = pd.to_numeric(series, errors="coerce")
+    mode_from_text = mode_text.map(MODE_VALUE_MAP)
+    return mode_from_text.where(mode_from_text.notna(), mode_numeric)

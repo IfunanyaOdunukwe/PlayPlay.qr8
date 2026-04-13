@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import secrets
 import time
@@ -15,20 +17,20 @@ PENDING_SPOTIFY_AUTH_TTL_SECONDS = 600
 INVALID_SPOTIFY_CREDENTIALS_MESSAGE = (
     "Spotify rejected that Client ID / Client Secret. Check both values and try again."
 )
-_PENDING_SPOTIFY_AUTH = {}
+_PENDING_SPOTIFY_AUTH: dict[str, dict] = {}
 
 
 class NoTokenCacheHandler(CacheHandler):
     """Disable Spotipy's default file cache for stateless deployments."""
 
-    def get_cached_token(self):
+    def get_cached_token(self) -> None:
         return None
 
-    def save_token_to_cache(self, token_info):
+    def save_token_to_cache(self, token_info: dict) -> None:
         return None
 
 
-def normalize_redirect_uri(redirect_uri):
+def normalize_redirect_uri(redirect_uri: str | None) -> str | None:
     """Strip query params and fragments from a redirect URI."""
     if not redirect_uri:
         return None
@@ -44,7 +46,7 @@ def normalize_redirect_uri(redirect_uri):
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "", "", ""))
 
 
-def canonicalize_local_redirect_uri(redirect_uri):
+def canonicalize_local_redirect_uri(redirect_uri: str | None) -> str | None:
     """Normalize local development redirect URIs to 127.0.0.1."""
     normalized_url = normalize_redirect_uri(redirect_uri)
     if not normalized_url:
@@ -59,7 +61,7 @@ def canonicalize_local_redirect_uri(redirect_uri):
     return urlunsplit((parsed.scheme, f"127.0.0.1{port}", parsed.path or "", "", ""))
 
 
-def _cleanup_pending_spotify_auth():
+def _cleanup_pending_spotify_auth() -> None:
     now = int(time.time())
     expired_states = [
         state
@@ -70,7 +72,7 @@ def _cleanup_pending_spotify_auth():
         _PENDING_SPOTIFY_AUTH.pop(state, None)
 
 
-def create_pending_spotify_auth(client_id, client_secret, redirect_uri):
+def create_pending_spotify_auth(client_id: str, client_secret: str, redirect_uri: str) -> str:
     """Store credentials briefly so OAuth callbacks can complete in a new session."""
     _cleanup_pending_spotify_auth()
     state = secrets.token_urlsafe(24)
@@ -83,7 +85,7 @@ def create_pending_spotify_auth(client_id, client_secret, redirect_uri):
     return state
 
 
-def get_pending_spotify_auth(state):
+def get_pending_spotify_auth(state: str | None) -> dict | None:
     """Retrieve a short-lived Spotify auth context by OAuth state."""
     if not state:
         return None
@@ -100,19 +102,19 @@ def get_pending_spotify_auth(state):
     }
 
 
-def clear_pending_spotify_auth(state):
+def clear_pending_spotify_auth(state: str | None) -> None:
     """Delete a short-lived Spotify auth context."""
     if state:
         _PENDING_SPOTIFY_AUTH.pop(state, None)
 
 
-def get_runtime_redirect_uri():
+def get_runtime_redirect_uri() -> str:
     """Use the app root URL as the default redirect URI."""
     import streamlit as st
 
     try:
         current_url = st.context.url
-    except Exception:
+    except AttributeError:
         current_url = None
 
     normalized_url = canonicalize_local_redirect_uri(current_url)
@@ -129,15 +131,15 @@ class SpotifyAuthManager:
     """
 
     @staticmethod
-    def is_token_valid(token_info):
-        return (
+    def is_token_valid(token_info: dict | None) -> bool:
+        return bool(
             token_info
             and token_info.get("access_token")
             and token_info.get('expires_at', 0) > int(time.time())
         )
 
     @classmethod
-    def create_oauth(cls, client_id, client_secret, redirect_uri, state=None):
+    def create_oauth(cls, client_id: str, client_secret: str, redirect_uri: str, state: str | None = None) -> SpotifyOAuth:
         """Build a SpotifyOAuth instance with the given credentials."""
         return SpotifyOAuth(
             client_id=client_id,
@@ -150,31 +152,31 @@ class SpotifyAuthManager:
         )
 
     @classmethod
-    def get_auth_url(cls, client_id, client_secret, redirect_uri, state=None):
+    def get_auth_url(cls, client_id: str, client_secret: str, redirect_uri: str, state: str | None = None) -> str:
         """Return the Spotify authorization URL the user should visit."""
         oauth = cls.create_oauth(client_id, client_secret, redirect_uri, state=state)
         return oauth.get_authorize_url()
 
     @classmethod
-    def exchange_code(cls, code, client_id, client_secret, redirect_uri):
+    def exchange_code(cls, code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
         """Exchange an authorization code for a token."""
         oauth = cls.create_oauth(client_id, client_secret, redirect_uri)
         token_info = oauth.get_access_token(code, as_dict=True, check_cache=False)
         return token_info
 
     @classmethod
-    def refresh_token(cls, token_info, client_id, client_secret, redirect_uri):
+    def refresh_token(cls, token_info: dict, client_id: str, client_secret: str, redirect_uri: str) -> dict:
         oauth = cls.create_oauth(client_id, client_secret, redirect_uri)
         refreshed = oauth.refresh_access_token(token_info['refresh_token'])
         return refreshed
 
     @classmethod
-    def disconnect(cls, st_session_state=None):
-        if st_session_state and 'token_info' in st_session_state:
-            del st_session_state['token_info']
+    def disconnect(cls, st_session_state: dict | None = None) -> None:
+        if st_session_state and "token_info" in st_session_state:
+            del st_session_state["token_info"]
 
 
-def get_spotify_credentials(auth_state=None):
+def get_spotify_credentials(auth_state: str | None = None) -> tuple[str | None, str | None, str | None]:
     """Resolve Spotify credentials from manual session input.
 
     Returns (client_id, client_secret, redirect_uri) or (None, None, None).
@@ -198,7 +200,7 @@ def get_spotify_credentials(auth_state=None):
     )
 
 
-def get_spotify_credentials_signature(client_id, client_secret):
+def get_spotify_credentials_signature(client_id: str | None, client_secret: str | None) -> str | None:
     """Create a stable fingerprint for the currently entered Spotify credentials."""
     if not client_id or not client_secret:
         return None
@@ -207,7 +209,7 @@ def get_spotify_credentials_signature(client_id, client_secret):
     return hashlib.sha256(raw).hexdigest()
 
 
-def validate_spotify_credentials(client_id, client_secret):
+def validate_spotify_credentials(client_id: str | None, client_secret: str | None) -> tuple[bool, str | None]:
     """Validate the Spotify app credentials before starting OAuth."""
     if not client_id or not client_secret:
         return False, "Enter both your Spotify Client ID and Client Secret."
@@ -240,7 +242,7 @@ def validate_spotify_credentials(client_id, client_secret):
     return False, f"Spotify could not validate those credentials (HTTP {response.status_code})."
 
 
-def format_spotify_auth_error(error):
+def format_spotify_auth_error(error: Exception) -> str:
     """Turn Spotipy auth exceptions into user-facing login guidance."""
     message = str(error).lower()
 

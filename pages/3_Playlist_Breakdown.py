@@ -2,10 +2,11 @@ import streamlit as st
 st.set_page_config(page_title="Playlist Breakdown | PlayPlay.qr8", layout="wide")
 
 import spotipy
-from src.ingestion import load_cache_metadata, load_from_cache
-from src.auth import SpotifyAuthManager
 from src.audio_features import AUDIO_FEATURE_DEFINITIONS, AUDIO_FEATURE_HELP, KEY_LABELS, MODE_LABELS
-from src.demo import get_demo_playlist_df, fetch_spotify_playlist_data_with_fallback
+from src.auth import SpotifyAuthManager
+from src.demo import fetch_spotify_playlist_data_with_fallback
+from src.demo import get_demo_playlist_df
+from src.ingestion import load_cache_metadata, load_from_cache
 from src.session_state import get_selected_playlist_snapshot
 from src.theme import apply_spotify_theme, render_nav_button, render_playlist_indicator
 
