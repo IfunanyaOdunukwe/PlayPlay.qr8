@@ -1,10 +1,10 @@
 # PlayPlay.qr8
 
-A Streamlit app for analyzing and curating your Spotify playlists. Connect your Spotify account, ingest playlist data with audio features, visualize your playlist's "vibe", and reshape it with an AI-powered chat interface.
+A Streamlit app for analyzing and curating playlists. Try local CSV demo playlists without Spotify, or log into Spotify to analyze your own private/public playlists and any public Spotify playlist URL.
 
 ## Features
 
-- **Connect & Select** — Authenticate with Spotify OAuth and pick a playlist
+- **Connect & Select** — Choose between local CSV demo playlists and an authenticated Spotify flow for your library or pasted public playlist URLs
 - **Playlist Breakdown** — View track metadata and audio features in an interactive table
 - **Vibe Inspector** — Statistical summaries, radar charts, valence-vs-energy scatter plots, and tempo distribution
 - **Playlist Sculptor** — Chat with an AI to reshape your playlist (remove tracks, reorder, highlight), then push the result back to Spotify as a new playlist
@@ -15,6 +15,8 @@ A Streamlit app for analyzing and curating your Spotify playlists. Connect your 
 - A [Spotify Developer](https://developer.spotify.com/dashboard) app with:
   - A Client ID and Client Secret
   - `http://127.0.0.1:8501` added as a Redirect URI
+
+Spotify credentials are required to browse your own library, analyze pasted public playlist URLs, or push a sculpted playlist back to Spotify. The demo flow uses bundled CSV playlists and does not call the Spotify API.
 
 ## Setup
 
@@ -37,7 +39,28 @@ pip install -r requirements.txt
 cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 ```
 
-Edit `.streamlit/secrets.toml` and fill in your `spotify_client_id` and `spotify_client_secret`.
+#### Spotify Developer setup
+
+To use your own Spotify login, create a Spotify app first:
+
+1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and create an app.
+2. On the app page, open Settings or Edit Settings.
+3. Copy the Client ID and use View client secret to reveal the Client Secret.
+4. Add `http://127.0.0.1:8501` to Redirect URIs if you run the app on the default local port. If you run Streamlit on another port, use that exact local app URL instead.
+5. Save the app settings.
+
+Spotify's official setup references:
+
+- [Getting started with the Web API](https://developer.spotify.com/documentation/web-api/tutorials/getting-started)
+- [Apps](https://developer.spotify.com/documentation/web-api/concepts/apps)
+
+Edit `.streamlit/secrets.toml` and fill in the Spotify values:
+
+```toml
+spotify_client_id = "..."
+spotify_client_secret = "..."
+spotify_redirect_uri = "http://127.0.0.1:8501"
+```
 
 Alternatively, you can enter credentials manually in the app's Connect page.
 
@@ -61,23 +84,24 @@ Open **http://127.0.0.1:8501** in your browser.
 
 ## How it works
 
-1. **Connect** — Authenticate via Spotify OAuth on the Connect & Select page
-2. **Select** — Pick a playlist from your library
-3. **Ingest** — On the Playlist Breakdown page, click "Ingest" to fetch track metadata and audio features (sourced from the [Reccobeats API](https://reccobeats.com))
+1. **Choose a flow** — Stay in local demo mode with CSV sample playlists, or authenticate via Spotify OAuth
+2. **Select** — Choose a demo CSV playlist, select a playlist from your Spotify account, or paste a public Spotify playlist URL after logging in
+3. **Ingest** — On the Playlist Breakdown page, load demo CSV data or fetch Spotify track metadata and Reccobeats audio features
 4. **Explore** — Switch to the Vibe Inspector to see charts and stats
-5. **Sculpt** — Use natural language on the Playlist Sculptor page to reshape your playlist, then push the result to Spotify
+5. **Sculpt** — Use natural language on the Playlist Sculptor page to reshape your playlist; Spotify export is available only for playlists loaded from your own account
 
 ## Project structure
 
 ```
 Welcome.py                     # Entry point / landing page
 pages/
-  2_Connect_and_Select.py    # Spotify OAuth + playlist picker
-  3_Playlist_Breakdown.py    # Data ingestion + feature table
+  2_Connect_and_Select.py    # Demo-vs-Spotify chooser + playlist picker
+  3_Playlist_Breakdown.py    # Demo CSV loading or Spotify/Reccobeats ingestion + feature table
   4_Vibe_Inspector.py        # Visualizations and stats
   5_Playlist_Sculptor.py     # AI chat interface for playlist curation
 src/
   auth.py                    # Spotify OAuth token management
+  demo.py                    # Demo CSV loading and public playlist helper logic
   ingestion.py               # Spotify API + Reccobeats audio features
   agent.py                   # LLM-powered sculptor agent
   llm_providers.py           # Multi-provider LLM factory

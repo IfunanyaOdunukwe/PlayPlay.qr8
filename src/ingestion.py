@@ -7,6 +7,21 @@ import time
 import requests  # Applied: Singular import as per "General Code Quality Guidelines #1"
 
 CACHE_DIR = "cache"
+CACHE_METADATA_SUFFIX = ".meta.json"
+AUDIO_FEATURE_COLUMNS = [
+    "danceability",
+    "energy",
+    "key",
+    "loudness",
+    "mode",
+    "speechiness",
+    "acousticness",
+    "instrumentalness",
+    "liveness",
+    "valence",
+    "tempo",
+    "time_signature",
+]
 
 
 def ensure_cache_dir():
@@ -16,6 +31,10 @@ def ensure_cache_dir():
 
 def get_cache_path(playlist_id):
     return os.path.join(CACHE_DIR, f"{playlist_id}.json")
+
+
+def get_cache_metadata_path(playlist_id):
+    return os.path.join(CACHE_DIR, f"{playlist_id}{CACHE_METADATA_SUFFIX}")
 
 
 def load_from_cache(playlist_id):
@@ -35,12 +54,30 @@ def load_from_cache(playlist_id):
     return None
 
 
-def save_to_cache(playlist_id, df):
-    """Save dataframe to local JSON."""
+def load_cache_metadata(playlist_id):
+    """Load playlist ingestion metadata from local JSON."""
+    ensure_cache_dir()
+    path = get_cache_metadata_path(playlist_id)
+    if os.path.exists(path):
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading cache metadata: {e}")
+            return None
+    return None
+
+
+def save_to_cache(playlist_id, df, metadata=None):
+    """Save dataframe and optional ingestion metadata to local JSON."""
     ensure_cache_dir()
     path = get_cache_path(playlist_id)
     df.to_json(path)
     print(f"Cached {len(df)} tracks to {path}")
+    if metadata is not None:
+        metadata_path = get_cache_metadata_path(playlist_id)
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f)
 
 
 def fetch_audio_features_reccobeats(track_ids, api_key=None):
@@ -74,6 +111,43 @@ def fetch_audio_features_reccobeats(track_ids, api_key=None):
         return []
 
 
+def merge_tracks_with_audio_features(df_tracks, df_features):
+    """Keep only tracks with Reccobeats audio features."""
+    if df_tracks.empty or df_features.empty or 'spotify_id' not in df_features.columns:
+        return df_tracks.iloc[0:0].copy()
+
+    feature_cols = [
+        col for col in df_features.columns if col in ['spotify_id', *AUDIO_FEATURE_COLUMNS]
+    ]
+    if 'spotify_id' not in feature_cols:
+        return df_tracks.iloc[0:0].copy()
+
+    df_features = df_features[feature_cols].drop_duplicates(subset='spotify_id', keep='first')
+    return pd.merge(df_tracks, df_features, left_on='id', right_on='spotify_id', how='inner')
+
+
+def build_ingestion_metadata(playlist_item_total, df_tracks, df_features, df_final):
+    """Summarize which playlist items were excluded during ingestion."""
+    spotify_track_total = len(df_tracks)
+    audio_feature_track_total = 0
+    if not df_features.empty and 'spotify_id' in df_features.columns:
+        audio_feature_track_total = int(df_features['spotify_id'].dropna().nunique())
+
+    kept_track_total = len(df_final)
+    expected_total = playlist_item_total if playlist_item_total is not None else spotify_track_total
+    unavailable_playlist_items = max(expected_total - spotify_track_total, 0)
+    tracks_missing_audio_features = max(spotify_track_total - kept_track_total, 0)
+
+    return {
+        "playlist_item_total": expected_total,
+        "spotify_track_total": spotify_track_total,
+        "audio_feature_track_total": audio_feature_track_total,
+        "kept_track_total": kept_track_total,
+        "unavailable_playlist_items": unavailable_playlist_items,
+        "tracks_missing_audio_features": tracks_missing_audio_features,
+    }
+
+
 def fetch_playlist_data(sp, playlist_id, force_refresh=False, reccobeats_api_key=None):
     """
     Main orchestration function.
@@ -93,6 +167,7 @@ def fetch_playlist_data(sp, playlist_id, force_refresh=False, reccobeats_api_key
     tracks_data = []
     # Explicitly set limit to 100 to avoid limit=0 bug
     results = sp.playlist_items(playlist_id, additional_types=['track'], limit=100)
+    playlist_item_total = results.get('total')
     tracks = results['items']
 
     while results['next']:
@@ -137,19 +212,10 @@ def fetch_playlist_data(sp, playlist_id, force_refresh=False, reccobeats_api_key
 
     # 3. Merge
     # Merge on Spotify track ID (df_tracks['id'] <-> df_features['spotify_id'])
-    if not df_features.empty and 'spotify_id' in df_features.columns:
-        feature_cols = [col for col in df_features.columns if col in [
-            'spotify_id', 'danceability', 'energy', 'key', 'loudness', 'mode',
-            'speechiness', 'acousticness', 'instrumentalness',
-            'liveness', 'valence', 'tempo', 'time_signature']]
-        if 'spotify_id' not in feature_cols:
-            feature_cols.insert(0, 'spotify_id')
-        df_features = df_features[feature_cols]
-        df_final = pd.merge(df_tracks, df_features, left_on='id', right_on='spotify_id', how='inner')
-    else:
-        df_final = df_tracks  # Fallback if audio features fail entirely
+    df_final = merge_tracks_with_audio_features(df_tracks, df_features)
+    metadata = build_ingestion_metadata(playlist_item_total, df_tracks, df_features, df_final)
 
     # 4. Cache
-    save_to_cache(playlist_id, df_final)
+    save_to_cache(playlist_id, df_final, metadata=metadata)
 
     return df_final

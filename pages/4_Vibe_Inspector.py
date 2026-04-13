@@ -3,18 +3,31 @@ st.set_page_config(page_title="Vibe Inspector | PlayPlay.qr8", layout="wide")
 
 import pandas as pd
 from src.ingestion import load_from_cache
+from src.demo import get_demo_playlist_df
+from src.theme import (
+    SPOTIFY_GREEN,
+    SPOTIFY_GRID,
+    SPOTIFY_METRIC_COLOR_MAP,
+    SPOTIFY_PLOTLY_COLORWAY,
+    SPOTIFY_PLOTLY_TEMPLATE,
+    SPOTIFY_TEXT,
+    apply_spotify_theme,
+    render_nav_button,
+    render_playlist_indicator,
+)
 import plotly.graph_objects as go
 import plotly.express as px
 
-st.title("Vibe Inspector")
+apply_spotify_theme()
 
-PLOTLY_TEMPLATE = "simple_white"
-METRIC_COLOR_MAP = {
-    "Major": "#4C78A8",
-    "Minor": "#F58518",
-    "Other": "#72B7B2",
-}
-PRIMARY_COLOR = METRIC_COLOR_MAP["Major"]
+st.title("Vibe Inspector")
+st.write(
+    "Review the playlist summary, compare tracks, and spot broader patterns before sculpting."
+)
+
+PLOTLY_TEMPLATE = SPOTIFY_PLOTLY_TEMPLATE
+METRIC_COLOR_MAP = SPOTIFY_METRIC_COLOR_MAP
+PRIMARY_COLOR = SPOTIFY_GREEN
 
 # Utility helpers
 def _to_float(val):
@@ -37,6 +50,13 @@ def sanitize_value(val, zero_invalid: bool = False):
     if zero_invalid and num == 0:
         return None
     return num
+
+
+def normalize_mode_numeric_series(series: pd.Series) -> pd.Series:
+    mode_text = series.astype("string").str.strip().str.lower()
+    mode_numeric = pd.to_numeric(series, errors="coerce")
+    mode_from_text = mode_text.map({"minor": 0, "major": 1})
+    return mode_from_text.where(mode_from_text.notna(), mode_numeric)
 
 
 def describe_valence(mean: float) -> str:
@@ -95,33 +115,58 @@ def describe_acousticness(mean: float) -> str:
 # Ensure a playlist is selected
 playlist_name = st.session_state.get('selected_playlist')
 playlist_id = st.session_state.get('selected_playlist_id')
+playlist_source = st.session_state.get("selected_playlist_source", "spotify")
+playlist_owner = st.session_state.get("selected_playlist_owner") or "Unknown"
 
 if not playlist_name or not playlist_id:
     st.warning("No playlist selected.")
-    st.page_link("pages/2_Connect_and_Select.py", label="Go to Connect & Select →", icon="🔗")
+    render_nav_button(
+        "pages/2_Connect_and_Select.py",
+        "Open Connect & Select →",
+        icon="🔗",
+        key="inspector_open_connect",
+    )
     st.stop()
 
 
 # Load cached data (use session state to avoid re-reading JSON on every rerun)
 _cache_key = f"_cached_df_{playlist_id}"
 if _cache_key not in st.session_state:
-    st.session_state[_cache_key] = load_from_cache(playlist_id)
+    try:
+        if playlist_source == "demo":
+            st.session_state[_cache_key] = get_demo_playlist_df(playlist_id)
+        else:
+            st.session_state[_cache_key] = load_from_cache(playlist_id)
+    except Exception as e:
+        st.error(f"Failed to load playlist data: {e}")
+        st.stop()
 df = st.session_state[_cache_key]
 if df is None or df.empty:
-    st.warning("No cached data found for this playlist. Please ingest on Playlist Breakdown first.")
+    st.warning("No cached data found. Load the playlist on Breakdown first.")
+    render_nav_button(
+        "pages/3_Playlist_Breakdown.py",
+        "Open Breakdown →",
+        icon="📊",
+        key="inspector_open_breakdown",
+    )
     st.stop()
 
 with st.sidebar:
     st.caption(f"🎵 {playlist_name}")
+    if playlist_source == "demo":
+        st.caption("Demo playlist")
 
-st.subheader("Playlist Statistical Summary")
+st.markdown("### Playlist Overview")
+render_playlist_indicator("Current Playlist", playlist_name)
+
+st.markdown("#### Summary")
 
 summary_specs = [
     ("Valence", "valence", describe_valence, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}%"),
     ("Danceability", "danceability", describe_danceability, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}%"),
     ("Energy", "energy", describe_energy, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}%"),
     ("Tempo", "tempo", describe_tempo, lambda series: sanitize_numeric_series(series, zero_invalid=True), lambda mean: f"{mean:.0f} BPM"),
-    ("Mode", "mode", describe_mode, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}% Major"),
+    ("Mode", "mode", describe_mode, lambda series: normalize_mode_numeric_series(series).dropna(), lambda mean: f"{mean * 100:.0f}% Major"),
     ("Acousticness", "acousticness", describe_acousticness, lambda series: sanitize_numeric_series(series, zero_invalid=False), lambda mean: f"{mean * 100:.0f}%"),
 ]
 
@@ -143,10 +188,12 @@ if summary_entries:
                 st.metric(label=label, value=formatted_value)
                 st.caption(narrative)
 else:
-    st.info("Statistical metrics are unavailable for this playlist because required columns are missing or empty.")
+    st.info("Summary metrics are unavailable because required columns are missing or empty.")
 
 st.divider()
-st.subheader("Vibe Radar")
+st.markdown("### Track Comparison")
+st.caption("Compare tracks across the core vibe metrics.")
+st.markdown("#### Vibe Radar")
 
 # Prepare track options (use ID for uniqueness, display as "name — artist")
 if not {'id', 'name', 'artist'}.issubset(df.columns):
@@ -160,7 +207,7 @@ selected_ids = st.multiselect(
     options=list(track_display.keys()),
     default=default_ids,
     format_func=lambda x: track_display.get(x, x),
-    help="Search and select one or more tracks to plot on the radar chart.",
+    help="Search and select tracks for the radar chart.",
 )
 
 # Metrics to visualize (order matters for the radar)
@@ -181,9 +228,9 @@ if "tempo" in df.columns:
 else:
     tempo_max = 1.0
 
- # Note about tempo normalization shown on the page
+# Note about tempo normalization shown on the page
 st.caption(
-    "Tempo is scaled relative to the fastest track in this playlist so it fits the 0–1 radar scale."
+    "Tempo is scaled against the fastest track so it fits the 0-1 radar scale."
 )
 
 if selected_ids:
@@ -230,20 +277,24 @@ if selected_ids:
 
     fig.update_layout(
         template=PLOTLY_TEMPLATE,
+        colorway=SPOTIFY_PLOTLY_COLORWAY,
         height=500,
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+        plot_bgcolor="rgba(0, 0, 0, 0)",
+        font=dict(color=SPOTIFY_TEXT),
         polar=dict(
             radialaxis=dict(
                 visible=True,
                 range=[0, 1],
                 tickfont=dict(size=12),
-                gridcolor="#E5E5E5",
+                gridcolor=SPOTIFY_GRID,
                 showgrid=True,
                 gridwidth=1,
             ),
             angularaxis=dict(
                 rotation=90,
                 tickfont=dict(size=12),
-                gridcolor="#E5E5E5",
+                gridcolor=SPOTIFY_GRID,
                 showgrid=True,
                 gridwidth=1,
             ),
@@ -257,13 +308,22 @@ else:
     st.info("Select one or more tracks to view the radar chart.")
 
 # Playlist-level mapping of valence, energy, and mode
-st.subheader("Valence vs. Energy By Mode")
+st.markdown("### Playlist Patterns")
+st.caption("Use these charts to see how the full playlist clusters and moves.")
+st.markdown("#### Valence vs. Energy by Mode")
 
 required_cols = {"valence", "energy", "mode"}
 if not required_cols.issubset(df.columns):
     st.info("Valence, energy, or mode metrics are missing for this playlist.")
 else:
-    trio_df = df[list(required_cols)].apply(pd.to_numeric, errors="coerce")
+    trio_df = pd.DataFrame(
+        {
+            "valence": pd.to_numeric(df["valence"], errors="coerce"),
+            "energy": pd.to_numeric(df["energy"], errors="coerce"),
+            "mode": normalize_mode_numeric_series(df["mode"]),
+        },
+        index=df.index,
+    )
     trio_df = trio_df.dropna(subset=["valence", "energy", "mode"])
 
     # Keep mode==0 (minor); only drop rows where valence or energy are exactly zero
@@ -297,6 +357,9 @@ else:
         fig.update_traces(marker=dict(size=12, opacity=0.85, line=dict(width=0)))
         fig.update_layout(
             template=PLOTLY_TEMPLATE,
+            paper_bgcolor="rgba(0, 0, 0, 0)",
+            plot_bgcolor="rgba(0, 0, 0, 0)",
+            font=dict(color=SPOTIFY_TEXT),
             height=420,
             margin=dict(l=40, r=20, t=60, b=40),
             legend=dict(
@@ -307,14 +370,14 @@ else:
                 x=0.5,
                 xanchor="center"
             ),
-            xaxis=dict(showgrid=True, gridcolor="#E5E5E5", gridwidth=1),
-            yaxis=dict(showgrid=True, gridcolor="#E5E5E5", gridwidth=1),
+            xaxis=dict(showgrid=True, gridcolor=SPOTIFY_GRID, gridwidth=1),
+            yaxis=dict(showgrid=True, gridcolor=SPOTIFY_GRID, gridwidth=1),
         )
 
         st.plotly_chart(fig, use_container_width=True)
 
 # Additional visualisation: Playlist's Tempo Distribution (Plotly)
-st.subheader("Tempo Distribution For Playlist")
+st.markdown("#### Tempo Distribution")
 
 # Extract and sanitize tempo values; exclude invalid zeros
 tempo_series = pd.to_numeric(df["tempo"], errors="coerce") if "tempo" in df.columns else pd.Series(dtype="float64")
@@ -326,9 +389,9 @@ if tempo_series.empty:
 else:
     # Toggle: False -> Histogram, True -> Violin (fallback to checkbox if toggle not available)
     try:
-        show_violin = st.toggle("Show as violin", value=False, help="Toggle to switch between histogram and violin plot")
+        show_violin = st.toggle("Violin view", value=False, help="Switch between histogram and violin plot")
     except Exception:
-        show_violin = st.checkbox("Show as violin", value=False, help="Toggle to switch between histogram and violin plot")
+        show_violin = st.checkbox("Violin view", value=False, help="Switch between histogram and violin plot")
 
 
     # Add song info to hover for tempo plots
@@ -365,10 +428,20 @@ else:
 
     fig.update_layout(
         template=PLOTLY_TEMPLATE,
+        paper_bgcolor="rgba(0, 0, 0, 0)",
+        plot_bgcolor="rgba(0, 0, 0, 0)",
+        font=dict(color=SPOTIFY_TEXT),
         height=420,
         margin=dict(l=40, r=20, t=60, b=40),
-        xaxis=dict(showgrid=True, gridcolor="#E5E5E5", gridwidth=1),
-        yaxis=dict(showgrid=True, gridcolor="#E5E5E5", gridwidth=1),
+        xaxis=dict(showgrid=True, gridcolor=SPOTIFY_GRID, gridwidth=1),
+        yaxis=dict(showgrid=True, gridcolor=SPOTIFY_GRID, gridwidth=1),
     )
 
     st.plotly_chart(fig, use_container_width=True)
+
+render_nav_button(
+    "pages/5_Playlist_Sculptor.py",
+    "Open Sculptor →",
+    icon="🪄",
+    key="inspector_open_sculptor",
+)

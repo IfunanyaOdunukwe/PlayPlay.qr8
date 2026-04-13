@@ -4,6 +4,7 @@ import time
 from spotipy.oauth2 import SpotifyOAuth
 
 SCOPES = "playlist-read-private playlist-read-collaborative playlist-modify-public playlist-modify-private"
+DEFAULT_SPOTIFY_REDIRECT_URI = "http://127.0.0.1:8501"
 
 
 class SpotifyAuthManager:
@@ -90,7 +91,7 @@ def get_spotify_credentials():
         return (
             st.secrets["spotify_client_id"],
             st.secrets["spotify_client_secret"],
-            st.secrets.get("spotify_redirect_uri", "http://127.0.0.1:8501"),
+            st.secrets.get("spotify_redirect_uri", DEFAULT_SPOTIFY_REDIRECT_URI),
         )
     except (KeyError, FileNotFoundError):
         return (
