@@ -328,35 +328,36 @@ def apply_spotify_theme() -> None:
             }}
 
             .spotify-helper-panel {{
-                margin-top: 0.4rem;
-                padding: 1.2rem;
-                border-radius: 24px;
-                border: 1px solid rgba(30, 215, 96, 0.22);
-                background: rgba(0, 51, 102, 0.42);
-                box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+                margin-top: 0.25rem;
+                padding: 1rem 1.05rem;
+                border-radius: 22px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.03);
+                box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
             }}
 
             .spotify-empty-chat-shell {{
-                min-height: clamp(220px, 34vh, 340px);
+                min-height: clamp(190px, 28vh, 280px);
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                padding: 0.35rem 0 1rem;
+                padding: 0.15rem 0 0.85rem;
             }}
 
             .spotify-chat-empty-panel {{
-                width: min(100%, 54rem);
+                width: min(100%, 48rem);
                 margin: 0;
             }}
 
             .spotify-helper-kicker {{
                 display: inline-block;
-                margin-bottom: 0.6rem;
-                padding: 0.28rem 0.72rem;
+                margin-bottom: 0.55rem;
+                padding: 0.24rem 0.62rem;
                 border-radius: 999px;
-                background: rgba(255, 111, 97, 0.92);
-                color: {SPOTIFY_BLACK};
-                font-size: 0.78rem;
+                border: 1px solid rgba(30, 215, 96, 0.22);
+                background: rgba(30, 215, 96, 0.12);
+                color: {SPOTIFY_GREEN};
+                font-size: 0.74rem;
                 font-weight: 700;
                 letter-spacing: 0.06em;
                 text-transform: uppercase;
@@ -364,54 +365,55 @@ def apply_spotify_theme() -> None:
 
             .spotify-helper-panel h3 {{
                 margin: 0;
-                font-size: 1.45rem;
+                font-size: 1.3rem;
             }}
 
             .spotify-helper-copy {{
                 margin-top: 0.55rem;
-                margin-bottom: 1rem;
-                max-width: 46rem;
+                margin-bottom: 0.85rem;
+                max-width: 38rem;
                 color: #EDEDED;
-                line-height: 1.6;
+                line-height: 1.5;
             }}
 
             .spotify-helper-grid {{
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
-                gap: 0.8rem;
+                gap: 0.65rem;
             }}
 
             .spotify-helper-grid-compact {{
                 grid-template-columns: 1fr;
-                gap: 0.65rem;
+                gap: 0.5rem;
+                max-width: 34rem;
             }}
 
             .spotify-helper-card {{
                 min-height: 100%;
-                padding: 0.95rem 1rem;
-                border-radius: 18px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                background: rgba(0, 0, 0, 0.28);
+                padding: 0.78rem 0.85rem;
+                border-radius: 16px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                background: rgba(255, 255, 255, 0.03);
             }}
 
             .spotify-helper-card strong {{
                 display: block;
-                margin-bottom: 0.45rem;
+                margin-bottom: 0.35rem;
                 color: {SPOTIFY_TEXT};
-                font-size: 0.95rem;
+                font-size: 0.9rem;
             }}
 
             .spotify-helper-card span {{
                 display: block;
                 color: {SPOTIFY_MUTED};
-                line-height: 1.55;
-                font-size: 0.95rem;
+                line-height: 1.45;
+                font-size: 0.9rem;
             }}
 
             .spotify-helper-footer {{
-                margin-top: 0.85rem;
+                margin-top: 0.7rem;
                 color: {SPOTIFY_MUTED};
-                font-size: 0.92rem;
+                font-size: 0.88rem;
             }}
 
             .spotify-current-playlist {{
